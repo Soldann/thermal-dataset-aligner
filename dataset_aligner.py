@@ -6,6 +6,7 @@ import tyro
 from dataclasses import dataclass
 from alignment_methods.contour_aligner import ContourAligner
 from alignment_methods.feature_aligner import FeatureAligner
+import cv2
 
 class DatasetFormat(Enum):
     RGBT_Scenes = "RGBT-Scenes"
@@ -29,6 +30,12 @@ class DatasetAlignerConfigurator:
     def align_datasets(self, rgb_images: List[Path], thermal_images: List[Path]):
         # Implement alignment logic here
         print(f"Aligning {len(rgb_images)} RGB images with {len(thermal_images)} thermal images.")
+        for i in range(len(rgb_images)):
+            print(f"Aligning pair {i+1}: {rgb_images[i]} and {thermal_images[i]}")
+            rgb_image = cv2.imread(str(rgb_images[i]), cv2.IMREAD_COLOR)
+            thermal_image = cv2.imread(str(thermal_images[i]), cv2.IMREAD_COLOR)
+            t = self.dataset_aligner.align_images(rgb_image, thermal_image)
+            print(f"Computed translation: {t}")
 
 
     def main(self):
@@ -46,9 +53,9 @@ class DatasetAlignerConfigurator:
                 rgb_images.extend((rgb_dir / 'test').glob('*.jpg'))
                 thermal_images.extend((thermal_dir / 'test').glob('*.jpg'))
             assert len(rgb_images) == len(thermal_images), "Mismatch in number of RGB and thermal images"
-
+            rgb_images = sorted(rgb_images)
+            thermal_images = sorted(thermal_images)
         self.align_datasets(rgb_images, thermal_images)
-        self.dataset_aligner.align_images(rgb_images[0], thermal_images[0])
 
 if __name__ == "__main__":
     converter: DatasetAlignerConfigurator = tyro.cli(DatasetAlignerConfigurator)
