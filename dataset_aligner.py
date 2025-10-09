@@ -30,6 +30,7 @@ class DatasetAlignerConfigurator:
     dataset_path: Annotated[Path, tyro.conf.Positional]
     dataset_format: DatasetFormat
     alignment_method: AlignmentMethod
+    output_path: Path = Path("./aligned_output")
     image_type: ImageCategory = ImageCategory.train
     debug_mode: bool = False
 
@@ -48,8 +49,11 @@ class DatasetAlignerConfigurator:
             blended = cv2.addWeighted(rgb_image, 0.5, translated_therm, 0.5, 0)  # Blend the two images
             plt.figure()
             plt.imshow(cv2.cvtColor(blended, cv2.COLOR_BGR2RGB))
-            plt.title(f'Blended Image after Translation')
-            plt.show()
+            if self.debug_mode:
+                plt.title(f'Blended Image after Translation')
+                plt.show()
+            self.output_path.mkdir(parents=True, exist_ok=True)
+            plt.savefig(self.output_path /f'aligned_{i+1}.png')
 
 
     def main(self):
