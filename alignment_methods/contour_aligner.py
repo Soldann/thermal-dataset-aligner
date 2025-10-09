@@ -15,9 +15,6 @@ def chamfer_distance(edges1, edges2):
     return (dist1 + dist2) / 2
 
 class ContourAligner(DatasetAligner):
-    def __init__(self):
-        self.debug_mode = False
-
     def optimize_translation(self, image_1, image_2, lr=1.0, iters=100, loss_fn=chamfer_distance):
         tx, ty = 0.0, 0.0
         eps = 1
@@ -52,11 +49,11 @@ class ContourAligner(DatasetAligner):
                 plt.title(f'Iteration {_+1}')
                 print(d_tx, d_ty, current_distance)
                 plt.show()
-        return tx, ty
+        return np.array([tx, ty])
 
     def align_images(self, rgb_image, thermal_image):
         # Implement contour-based alignment logic here
 
         rgb_edges = cv2.Canny(rgb_image, 1, 200)
         thermal_edges = cv2.Canny(thermal_image, 30, 200)
-        return self.optimize_translation(rgb_edges, thermal_edges)
+        return self.optimize_translation(thermal_edges, rgb_edges)
