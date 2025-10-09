@@ -109,13 +109,4 @@ class FeatureAligner(DatasetAligner):
             fig_org = make_matching_figure(_img0, _img1, np.zeros(0),  np.zeros(0),  np.zeros(0), text=["Original"], dpi=125)
             fig_match = make_matching_figure(_img0, _img1, mkpts0, mkpts1, color, text=text, dpi=125)
 
-            tx, ty = t
-            M = np.float32([[1, 0, tx], [0, 1, ty]])
-            translated_therm = cv2.warpAffine(img0, M, (img0.shape[1], img0.shape[0]))
-            blended = cv2.addWeighted(img1, 0.5, translated_therm, 0.5, 0)  # Blend the two images
-            plt.figure()
-            plt.imshow(blended)
-            plt.title(f'Blended Image after Translation')
-            plt.show()
-
         return t
