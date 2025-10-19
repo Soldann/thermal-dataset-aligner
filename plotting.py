@@ -62,10 +62,18 @@ def create_interactive_plot(image1, image2, pixel_map_12, pixel_map_21):
         circle_ax2.set_center((circle_2_pos[0], circle_2_pos[1]))
         circle_ax1.set_visible(True)
         circle_ax2.set_visible(True)
-        textbox_ax1.set_text(f'({circle_1_pos[0]}, {circle_1_pos[1]})')
-        textbox_ax2.set_text(f'({circle_2_pos[0]}, {circle_2_pos[1]})')
-        ab_1.xy = (circle_1_pos[0], circle_1_pos[1])
-        ab_2.xy = (circle_2_pos[0], circle_2_pos[1])
+        if circle_1_pos[0] < 0 or circle_1_pos[1] < 0:
+            textbox_ax1.set_text('No bijective match found')
+            ab_1.xy = (image1.shape[1]/2, image1.shape[0]/2)
+        else:
+            textbox_ax1.set_text(f'({circle_1_pos[0]}, {circle_1_pos[1]})')
+            ab_1.xy = (circle_1_pos[0], circle_1_pos[1])
+        if circle_2_pos[0] < 0 or circle_2_pos[1] < 0:
+            textbox_ax2.set_text('No bijective match found')
+            ab_2.xy = (image2.shape[1]/2, image2.shape[0]/2)
+        else:
+            textbox_ax2.set_text(f'({circle_2_pos[0]}, {circle_2_pos[1]})')
+            ab_2.xy = (circle_2_pos[0], circle_2_pos[1])
         ab_1.set_visible(True)
         ab_2.set_visible(True)
 
