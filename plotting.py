@@ -7,6 +7,16 @@ from matplotlib.patches import Circle
 import matplotlib
 from matplotlib.offsetbox import AnnotationBbox, TextArea
 
+def create_interactive_correspondence_plot_from_kpts(image1, image2, kpts1, kpts2, confidence=None):
+    # Create new pixel maps from the keypoints
+    h, w, _ = image1.shape
+    pixel_map_12 = np.full((h, w, 2), -1, dtype=np.int32)
+    pixel_map_21 = np.full((h, w, 2), -1, dtype=np.int32)
+    pixel_map_12[kpts1[:, 1], kpts1[:, 0]] = kpts2
+    pixel_map_21[kpts2[:, 1], kpts2[:, 0]] = kpts1
+
+    create_interactive_correspondence_plot(image1, image2, pixel_map_12, pixel_map_21, confidence)
+
 def create_interactive_correspondence_plot(image1, image2, pixel_map_12, pixel_map_21, confidence=None):
     fig = plt.figure(figsize=(10, 5))
 
