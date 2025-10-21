@@ -103,28 +103,32 @@ def create_interactive_correspondence_plot(image1, image2, pixel_map_12, pixel_m
     # mplcursors.cursor(hover=True)
     plt.show()
 
-def plot_correspondences(images, kpts1, kpts2, draw_lines=True, filter_invalid=True):
+def plot_correspondences(img1, img2, kpts1, kpts2, draw_lines=True, filter_invalid=True):
     # write code that displays the projected points on the second image using matplotlib
     plt.figure()
-    plt.subplot(1, 2, 1)
-    img = images[0, 0].cpu().numpy().transpose(1, 2, 0)
-    plt.imshow(img)
+    ax1 = plt.subplot(1, 2, 1)
+    plt.imshow(img1)
     # show only the points that are within the image bounds
-    h, w, _ = img.shape
+    h, w, _ = img1.shape
     if filter_invalid:
         kpts1 = kpts1[(kpts1[:, 0] >= 0) & (kpts1[:, 0] < w) & (kpts1[:, 1] >= 0) & (kpts1[:, 1] < h)]
     projected_points_plot = kpts1.reshape(-1,2)
     plt.scatter(projected_points_plot[:, 0], projected_points_plot[:, 1], s=1, c='r')
-    plt.subplot(1, 2, 2)
-    img = images[0, 1].cpu().numpy().transpose(1, 2, 0)
-    plt.imshow(img)
+    ax2 = plt.subplot(1, 2, 2)
+    plt.imshow(img2)
     # show only the points that are within the image bounds
-    h, w, _ = img.shape
+    h, w, _ = img2.shape
     if filter_invalid:
         kpts2 = kpts2[(kpts2[:, 0] >= 0) & (kpts2[:, 0] < w) & (kpts2[:, 1] >= 0) & (kpts2[:, 1] < h)]
     projected_points_plot = kpts2.reshape(-1,2)
     plt.scatter(projected_points_plot[:, 0], projected_points_plot[:, 1], s=1, c='r')
 
+    if draw_lines:
+        for i in range(min(len(kpts1), len(kpts2))):
+            con = matplotlib.patches.ConnectionPatch(xyA=(kpts2[i, 0], kpts2[i, 1]), xyB=(kpts1[i, 0], kpts1[i, 1]),
+                                                   coordsA="data", coordsB="data",
+                                                   axesA=ax2, axesB=ax1, color="red", linewidth=0.5)
+            ax2.add_artist(con)
     plt.show()
 
 def make_matching_figure(

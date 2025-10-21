@@ -16,7 +16,8 @@ from feature_matchers.vggt_feature_matcher import VGGTFeatureMatcher
 import cv2
 from vggt.utils.load_fn import load_and_preprocess_images
 from dataset_aligner import AlignmentMethod, DatasetFormat
-from plotting import create_interactive_correspondence_plot, create_interactive_correspondence_plot_from_kpts
+from plotting import make_matching_figure, create_interactive_correspondence_plot_from_kpts, plot_correspondences
+import matplotlib.cm as cm
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -54,8 +55,23 @@ class DatasetCorrespondencer:
         else:
             og_image2 = processed_rgb_images[1].permute(1, 2, 0).cpu().numpy()
 
+        plot_correspondences(
+            og_image1,
+            og_image2,
+            kpts1,
+            kpts2,
+            draw_lines=False,
+        )
         create_interactive_correspondence_plot_from_kpts(og_image1, og_image2, kpts1, kpts2, conf)
-        
+        color = cm.jet(conf[0, 0][kpts1[:,1], kpts2[:,0]] / conf.max())
+        make_matching_figure(
+            og_image1,
+            og_image2,
+            kpts1,
+            kpts2,
+            color=color,
+        )
+        plt.show()
         return kpts1, kpts2, conf
 
     def compute_correspondences_from_RGBT_Scenes(self, image_paths: List[Path]):
