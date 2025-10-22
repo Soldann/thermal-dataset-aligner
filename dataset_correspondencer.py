@@ -34,6 +34,13 @@ class DatasetCorrespondencer:
         self.dataset_aligner: DatasetAligner = dataset_aligner
 
     def compute_correspondences(self, rgb_images: List[Path], thermal_images: List[Path], original_image_modalities: List[ImageModality]):
+        """"
+        Compute correspondences between two images from the given paths. Currently only supports passing in two images at a time.
+        :param rgb_images: List of paths to the two RGB images
+        :param thermal_images: List of paths to the two thermal images
+        :param original_image_modalities: List indicating which modality each image originally is
+        :return: keypoints in image 1, keypoints in image 2, confidence scores
+        """
         processed_rgb_images = load_and_preprocess_images(rgb_images)[:2]  # only keep 2 images
         kpts1, kpts2, conf = self.feature_matcher.compute_correspondences_from_tensor(processed_rgb_images)
 
