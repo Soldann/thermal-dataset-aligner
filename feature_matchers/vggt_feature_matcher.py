@@ -37,7 +37,7 @@ class VGGTFeatureMatcher(FeatureMatcher):
             images = images.unsqueeze(0)
         return self.compute_correspondences_from_tensor(images)
 
-    def compute_correspondences_from_tensor(self, images):
+    def compute_correspondences_from_tensor(self, images, images_pair_indices):
         images = images.to(self.device)
         with torch.no_grad():
             with torch.cuda.amp.autocast(dtype=self.dtype):
@@ -60,49 +60,52 @@ class VGGTFeatureMatcher(FeatureMatcher):
             point_map_by_unprojection = unproject_depth_map_to_point_map(depth_map.squeeze(0), 
                                                                         extrinsic.squeeze(0), 
                                                                         intrinsic.squeeze(0))
-            
-            # Project 3D Points to Other Camera Views
-            projected_points_12 = project_world_points_to_cam(torch.from_numpy(point_map_by_unprojection[0].reshape(-1, 3)).double().cuda(),
-                                                            extrinsic[:, 1].double(),
-                                                            intrinsic[:, 1].double())
 
-            projected_points_21 = project_world_points_to_cam(torch.from_numpy(point_map_by_unprojection[1].reshape(-1, 3)).double().cuda(),
-                                                            extrinsic[:, 0].double(),
-                                                            intrinsic[:, 0].double())
+            kpts1_list, kpts2_list, depth_conf_list = [], [], []
+            for image1_idx, image2_idx in images_pair_indices:
+                # Project 3D Points to Other Camera Views
+                projected_points_12 = project_world_points_to_cam(torch.from_numpy(point_map_by_unprojection[image1_idx].reshape(-1, 3)).double().cuda(),
+                                                                extrinsic[:, image2_idx].double(),
+                                                                intrinsic[:, image2_idx].double())
 
-            projected_points_12_2D = projected_points_12[0].cpu()
-            projected_points_21_2D = projected_points_21[0].cpu()
+                projected_points_21 = project_world_points_to_cam(torch.from_numpy(point_map_by_unprojection[image2_idx].reshape(-1, 3)).double().cuda(),
+                                                                extrinsic[:, image1_idx].double(),
+                                                                intrinsic[:, image1_idx].double())
 
-            H, W = point_map_by_unprojection[0].shape[0], point_map_by_unprojection[0].shape[1]
+                projected_points_12_2D = projected_points_12[0].cpu()
+                projected_points_21_2D = projected_points_21[0].cpu()
 
-            pixel_map_12 = torch.round(projected_points_12_2D[0].reshape(point_map_by_unprojection[0].shape[0], point_map_by_unprojection[0].shape[1], 2)).int()
-            pixel_map_21 = torch.round(projected_points_21_2D[0].reshape(point_map_by_unprojection[1].shape[0], point_map_by_unprojection[1].shape[1], 2)).int()
+                H, W = point_map_by_unprojection[0].shape[0], point_map_by_unprojection[0].shape[1]
 
-            # Compute Bijection of Pixel Maps
-            Y, X = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
-            XY = torch.stack([X, Y], axis=-1)  # shape (H, W, 2)
+                pixel_map_12 = torch.round(projected_points_12_2D[0].reshape(point_map_by_unprojection[0].shape[0], point_map_by_unprojection[0].shape[1], 2)).int()
+                pixel_map_21 = torch.round(projected_points_21_2D[0].reshape(point_map_by_unprojection[1].shape[0], point_map_by_unprojection[1].shape[1], 2)).int()
 
-            # Check bijection: map2[map1[i,j]] == (i,j)
-            u, v = pixel_map_12[..., 0], pixel_map_12[..., 1]
-            # Step 2: Create valid mask
-            valid_mask = (u >= 0) & (u < W) & (v >= 0) & (v < H)
-            # Step 3: Initialize output with NaNs
-            mapped_back = torch.full_like(pixel_map_12, -1)
-            # Step 4: Safely assign only valid indices
-            mapped_back[valid_mask] = pixel_map_21[v[valid_mask], u[valid_mask]]
-            bijection_mask = torch.all(mapped_back == XY, axis=-1)
+                # Compute Bijection of Pixel Maps
+                Y, X = torch.meshgrid(torch.arange(H), torch.arange(W), indexing='ij')
+                XY = torch.stack([X, Y], axis=-1)  # shape (H, W, 2)
 
-            # Extract valid (i,j) and their mapped (u,v)
-            valid_u1v1 = XY[bijection_mask]
-            valid_u2v2 = pixel_map_12[bijection_mask]
+                # Check bijection: map2[map1[i,j]] == (i,j)
+                u, v = pixel_map_12[..., 0], pixel_map_12[..., 1]
+                # Step 2: Create valid mask
+                valid_mask = (u >= 0) & (u < W) & (v >= 0) & (v < H)
+                # Step 3: Initialize output with NaNs
+                mapped_back = torch.full_like(pixel_map_12, -1)
+                # Step 4: Safely assign only valid indices
+                mapped_back[valid_mask] = pixel_map_21[v[valid_mask], u[valid_mask]]
+                bijection_mask = torch.all(mapped_back == XY, axis=-1)
 
-            if self.debug_mode:
-                # Create new pixel maps with only bijection correspondences
-                valid_pixel_map_12 = torch.full_like(pixel_map_12, -1)
-                valid_pixel_map_21 = torch.full_like(pixel_map_21, -1)
-                valid_pixel_map_12[bijection_mask] = pixel_map_12[bijection_mask]
-                valid_pixel_map_21[bijection_mask] = pixel_map_21[bijection_mask]
+                # Extract valid (i,j) and their mapped (u,v)
+                valid_u1v1 = XY[bijection_mask]
+                valid_u2v2 = pixel_map_12[bijection_mask]
 
-                create_interactive_correspondence_plot(images[0, 0].permute(1, 2, 0).cpu(), images[0, 1].permute(1, 2, 0).cpu(), valid_pixel_map_12.numpy(), valid_pixel_map_21.numpy(), depth_conf.cpu().numpy())
-        return valid_u1v1.cpu().numpy(), valid_u2v2.cpu().numpy(), depth_conf.cpu().numpy()
+                if self.debug_mode:
+                    # Create new pixel maps with only bijection correspondences
+                    valid_pixel_map_12 = torch.full_like(pixel_map_12, -1)
+                    valid_pixel_map_21 = torch.full_like(pixel_map_21, -1)
+                    valid_pixel_map_12[bijection_mask] = pixel_map_12[bijection_mask]
+                    valid_pixel_map_21[bijection_mask] = pixel_map_21[bijection_mask]
+
+                    create_interactive_correspondence_plot(images[0, image1_idx].permute(1, 2, 0).cpu(), images[0, image2_idx].permute(1, 2, 0).cpu(), valid_pixel_map_12.numpy(), valid_pixel_map_21.numpy(), depth_conf.cpu().numpy())
+                kpts1_list.append(valid_u1v1.cpu().numpy()), kpts2_list.append(valid_u2v2.cpu().numpy()), depth_conf_list.append(depth_conf.cpu().numpy())
+        return kpts1_list, kpts2_list, depth_conf_list
 

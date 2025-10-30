@@ -29,56 +29,65 @@ class ImageModality(Enum):
     rgb = "rgb"
 
 class DatasetCorrespondencer:
-    def __init__(self, feature_matcher, dataset_aligner):
+    def __init__(self, feature_matcher: FeatureMatcher, dataset_aligner: DatasetAligner, debug_mode: bool = False):
         self.feature_matcher: FeatureMatcher = feature_matcher
         self.dataset_aligner: DatasetAligner = dataset_aligner
+        self.debug_mode = debug_mode
 
-    def compute_correspondences(self, rgb_images: List[Path], thermal_images: List[Path], original_image_modalities: List[ImageModality]):
+    def compute_correspondences(self, rgb_images: List[Path], thermal_images: List[Path], original_image_modalities: List[ImageModality], correspondence_pairs: List[tuple] = [(0,1)]):
         """"
         Compute correspondences between two images from the given paths. Currently only supports passing in two images at a time.
         :param rgb_images: List of paths to the two RGB images
         :param thermal_images: List of paths to the two thermal images
         :param original_image_modalities: List indicating which modality each image originally is
+        :param correspondence_pairs: List of tuples indicating which image pairs to compute correspondences for
         :return: keypoints in image 1, keypoints in image 2, confidence scores
         """
-        processed_rgb_images = load_and_preprocess_images(rgb_images)[:2]  # only keep 2 images
-        kpts1, kpts2, conf = self.feature_matcher.compute_correspondences_from_tensor(processed_rgb_images)
-
-        processed_thermal_images = load_and_preprocess_images(thermal_images)[:2]  # only keep 2 images
+        processed_rgb_images = load_and_preprocess_images(rgb_images)
+        kpts1, kpts2, conf = self.feature_matcher.compute_correspondences_from_tensor(processed_rgb_images, correspondence_pairs)
+        processed_thermal_images = load_and_preprocess_images(thermal_images)
         print(original_image_modalities)
-        if original_image_modalities[0] == ImageModality.thermal:
-            og_image1 = processed_thermal_images[0].permute(1, 2, 0).cpu().numpy()
 
-            tx, ty = self.dataset_aligner.align_images(processed_rgb_images[0].permute(1, 2, 0).cpu().numpy(), og_image1)
-            kpts2 = kpts2 + np.round(np.array([tx, ty])).astype(np.int32)
-        else:
-            og_image1 = processed_rgb_images[0].permute(1, 2, 0).cpu().numpy()
+        for i, (image1_idx, image2_idx) in enumerate(correspondence_pairs):
+            if original_image_modalities[image1_idx] == ImageModality.thermal:
+                og_image1 = processed_thermal_images[image1_idx].permute(1, 2, 0).cpu().numpy()
 
-        if original_image_modalities[1] == ImageModality.thermal:
-            og_image2 = processed_thermal_images[1].permute(1, 2, 0).cpu().numpy()
+                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image1_idx].permute(1, 2, 0).cpu().numpy(), og_image1)
+                kpts2[i] = kpts2[i] + np.round(np.array([tx, ty])).astype(np.int32)
+            else:
+                og_image1 = processed_rgb_images[image1_idx].permute(1, 2, 0).cpu().numpy()
 
-            tx, ty = self.dataset_aligner.align_images(processed_rgb_images[1].permute(1, 2, 0).cpu().numpy(), og_image2)
-            kpts1 = kpts1 + np.round(np.array([tx, ty])).astype(np.int32)
-        else:
-            og_image2 = processed_rgb_images[1].permute(1, 2, 0).cpu().numpy()
+            if original_image_modalities[image2_idx] == ImageModality.thermal:
+                og_image2 = processed_thermal_images[image2_idx].permute(1, 2, 0).cpu().numpy()
 
-        plot_correspondences(
-            og_image1,
-            og_image2,
-            kpts1,
-            kpts2,
-            draw_lines=False,
-        )
-        create_interactive_correspondence_plot_from_kpts(og_image1, og_image2, kpts1, kpts2, conf)
-        color = cm.jet(conf[0, 0][kpts1[:,1], kpts2[:,0]] / conf.max())
-        make_matching_figure(
-            og_image1,
-            og_image2,
-            kpts1,
-            kpts2,
-            color=color,
-        )
-        plt.show()
+                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image2_idx].permute(1, 2, 0).cpu().numpy(), og_image2)
+                kpts1[i] = kpts1[i] + np.round(np.array([tx, ty])).astype(np.int32)
+            else:
+                og_image2 = processed_rgb_images[image2_idx].permute(1, 2, 0).cpu().numpy()
+
+            if self.debug_mode:
+                plot_correspondences(
+                    og_image1,
+                    og_image2,
+                    kpts1[i],
+                    kpts2[i],
+                    draw_lines=False,
+                )
+                create_interactive_correspondence_plot_from_kpts(og_image1, og_image2, kpts1[i], kpts2[i], conf[i])
+                color = cm.jet(conf[i][0, 0][kpts1[i][:,1], kpts2[i][:,0]] / conf[i].max())
+                text = [
+                    'Ours',
+                    'Matches: {}'.format(len(kpts1[i])),
+                ]
+                make_matching_figure(
+                    og_image1,
+                    og_image2,
+                    kpts1[i],
+                    kpts2[i],
+                    color=color,
+                    text=text,
+                )
+                plt.show()
         return kpts1, kpts2, conf
 
     def compute_correspondences_from_RGBT_Scenes(self, image_paths: List[Path]):
@@ -105,7 +114,7 @@ class DatasetCorrespondencerConfigurator:
     debug_mode: bool = False
 
     def main(self):
-        correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), self.alignment_method.value())
+        correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), self.alignment_method.value(), self.debug_mode)
         # correspondencer.feature_matcher.debug_mode = self.debug_mode
         if self.dataset_format == DatasetFormat.RGBT_Scenes:
             kpts1, kpts2, conf = correspondencer.compute_correspondences_from_RGBT_Scenes([self.image1_path, self.image2_path])
