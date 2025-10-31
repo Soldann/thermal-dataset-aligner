@@ -1,5 +1,6 @@
 from .base_feature_matcher import FeatureMatcher
 import torch
+from typing import List, Tuple
 from vggt.models.vggt import VGGT
 from vggt.utils.load_fn import load_and_preprocess_images
 from vggt.utils.pose_enc import pose_encoding_to_extri_intri
@@ -35,9 +36,16 @@ class VGGTFeatureMatcher(FeatureMatcher):
         # Verify shape is (1, C, H, W)
         if images.dim() == 3:
             images = images.unsqueeze(0)
-        return self.compute_correspondences_from_tensor(images)
+        _, kpts1_list, kpts2_list, depth_conf_list = self.compute_correspondences_from_tensor(images, [(0, 1)])
+        return kpts1_list[0].cpu().numpy(), kpts2_list[0].cpu().numpy()
 
-    def compute_correspondences_from_tensor(self, images, images_pair_indices):
+    def compute_correspondences_from_tensor(self, images: torch.Tensor, images_pair_indices: List[Tuple[int, int]]):
+        """Compute correspondences between a set of images using VGGT.
+        :param images: A tensor of shape (N, C, H, W) containing N images.
+        :param images_pair_indices: List of tuples indicating which image pairs to compute correspondences for
+        :return: A tuple of (kpts1_list, kpts2_list, depth_conf_list) where kpts1_list and kpts2_list are lists of tensors containing corresponding pixel coordinates in the respective images, and depth_conf_list contains depth confidence scores.
+                 kpts1_list[i], kpts2_list[i], depth_conf_list[i] correspond to the i-th pair in images_pair_indices.
+        """
         images = images.to(self.device)
         with torch.no_grad():
             with torch.cuda.amp.autocast(dtype=self.dtype):
@@ -106,6 +114,6 @@ class VGGTFeatureMatcher(FeatureMatcher):
                     valid_pixel_map_21[bijection_mask] = pixel_map_21[bijection_mask]
 
                     create_interactive_correspondence_plot(images[0, image1_idx].permute(1, 2, 0).cpu(), images[0, image2_idx].permute(1, 2, 0).cpu(), valid_pixel_map_12.numpy(), valid_pixel_map_21.numpy(), depth_conf.cpu().numpy())
-                kpts1_list.append(valid_u1v1.cpu().numpy()), kpts2_list.append(valid_u2v2.cpu().numpy()), depth_conf_list.append(depth_conf.cpu().numpy())
+                kpts1_list.append(valid_u1v1), kpts2_list.append(valid_u2v2), depth_conf_list.append(depth_conf)
         return kpts1_list, kpts2_list, depth_conf_list
 

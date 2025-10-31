@@ -4,6 +4,7 @@
 
 from enum import Enum
 from typing import List
+import torch
 from typing_extensions import Annotated
 from pathlib import Path
 import tyro
@@ -35,55 +36,64 @@ class DatasetCorrespondencer:
         self.debug_mode = debug_mode
 
     def compute_correspondences(self, rgb_images: List[Path], thermal_images: List[Path], original_image_modalities: List[ImageModality], correspondence_pairs: List[tuple] = [(0,1)]):
-        """"
-        Compute correspondences between two images from the given paths. Currently only supports passing in two images at a time.
-        :param rgb_images: List of paths to the two RGB images
-        :param thermal_images: List of paths to the two thermal images
-        :param original_image_modalities: List indicating which modality each image originally is
+        """
+        Compute correspondences between a set of images that have both RGB and thermal modalities.
+        :param rgb_images: List of paths to the RGB images
+        :param thermal_images: List of paths to the thermal images
+        :param original_image_modalities: List indicating the target modality of each image we want to compute correspondences for
         :param correspondence_pairs: List of tuples indicating which image pairs to compute correspondences for
-        :return: keypoints in image 1, keypoints in image 2, confidence scores
+        :return: tensor of image1, tensor of image2, keypoints in image 1, keypoints in image 2, confidence scores
         """
         processed_rgb_images = load_and_preprocess_images(rgb_images)
         kpts1, kpts2, conf = self.feature_matcher.compute_correspondences_from_tensor(processed_rgb_images, correspondence_pairs)
         processed_thermal_images = load_and_preprocess_images(thermal_images)
         print(original_image_modalities)
 
+        og_image1 = []
+        og_image2 = []
+
         for i, (image1_idx, image2_idx) in enumerate(correspondence_pairs):
             if original_image_modalities[image1_idx] == ImageModality.thermal:
-                og_image1 = processed_thermal_images[image1_idx].permute(1, 2, 0).cpu().numpy()
+                og_image1.append(processed_thermal_images[image1_idx])
 
-                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image1_idx].permute(1, 2, 0).cpu().numpy(), og_image1)
-                kpts2[i] = kpts2[i] + np.round(np.array([tx, ty])).astype(np.int32)
+                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image1_idx].permute(1, 2, 0).cpu().numpy(), og_image1[-1].permute(1, 2, 0).cpu().numpy())
+                kpts2[i] = kpts2[i] + torch.round(torch.tensor([tx, ty])).to(torch.int32)
             else:
-                og_image1 = processed_rgb_images[image1_idx].permute(1, 2, 0).cpu().numpy()
+                og_image1.append(processed_rgb_images[image1_idx])
 
             if original_image_modalities[image2_idx] == ImageModality.thermal:
-                og_image2 = processed_thermal_images[image2_idx].permute(1, 2, 0).cpu().numpy()
+                og_image2.append(processed_thermal_images[image2_idx])
 
-                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image2_idx].permute(1, 2, 0).cpu().numpy(), og_image2)
-                kpts1[i] = kpts1[i] + np.round(np.array([tx, ty])).astype(np.int32)
+                tx, ty = self.dataset_aligner.align_images(processed_rgb_images[image2_idx].permute(1, 2, 0).cpu().numpy(), og_image2[-1].permute(1, 2, 0).cpu().numpy())
+                kpts1[i] = kpts1[i] + torch.round(torch.tensor([tx, ty])).to(torch.int32)
             else:
-                og_image2 = processed_rgb_images[image2_idx].permute(1, 2, 0).cpu().numpy()
+                og_image2.append(processed_rgb_images[image2_idx])
 
             if self.debug_mode:
+                og_image1_np = og_image1[i].permute(1, 2, 0).cpu().numpy()
+                og_image2_np = og_image2[i].permute(1, 2, 0).cpu().numpy()
+                kpts1_np = kpts1[i].cpu().numpy()
+                kpts2_np = kpts2[i].cpu().numpy()
+                conf_np = conf[i].cpu().numpy()
+
                 plot_correspondences(
-                    og_image1,
-                    og_image2,
-                    kpts1[i],
-                    kpts2[i],
+                    og_image1_np,
+                    og_image2_np,
+                    kpts1_np,
+                    kpts2_np,
                     draw_lines=False,
                 )
-                create_interactive_correspondence_plot_from_kpts(og_image1, og_image2, kpts1[i], kpts2[i], conf[i])
-                color = cm.jet(conf[i][0, 0][kpts1[i][:,1], kpts2[i][:,0]] / conf[i].max())
+                create_interactive_correspondence_plot_from_kpts(og_image1_np, og_image2_np, kpts1_np, kpts2_np, conf_np)
+                color = cm.jet(conf_np[0, 0][kpts1_np[:,1], kpts2_np[:,0]] / conf_np.max())
                 text = [
                     'Ours',
-                    'Matches: {}'.format(len(kpts1[i])),
+                    'Matches: {}'.format(len(kpts1_np)),
                 ]
                 make_matching_figure(
-                    og_image1,
-                    og_image2,
-                    kpts1[i],
-                    kpts2[i],
+                    og_image1_np,
+                    og_image2_np,
+                    kpts1_np,
+                    kpts2_np,
                     color=color,
                     text=text,
                 )
