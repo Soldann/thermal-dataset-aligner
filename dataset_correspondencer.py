@@ -98,7 +98,7 @@ class DatasetCorrespondencer:
                     text=text,
                 )
                 plt.show()
-        return kpts1, kpts2, conf
+        return og_image1, og_image2, kpts1, kpts2, conf
 
     def compute_correspondences_from_RGBT_Scenes(self, image_paths: List[Path]):
         rgb_images = []
