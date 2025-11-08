@@ -31,6 +31,11 @@ def matching_points(grd_desc, grd_scrs, sat_desc, sat_scrs, k=1024, temperature=
     sat_desc = sat_desc.reshape(sat_desc.shape[0], sat_desc.shape[1], -1)  
     sat_scrs = sat_scrs.reshape(sat_scrs.shape[0], 1, -1)  
 
+    print("grd_desc.shape after reshape:", grd_desc.shape)
+    print("grd_scrs.shape after reshape:", grd_scrs.shape)
+    print("sat_desc.shape after reshape:", sat_desc.shape)
+    print("sat_scrs.shape after reshape:", sat_scrs.shape)
+
     # Ensure k is within valid bounds
     _, num_features, num_points_grd = grd_desc.shape  # [B, D, N]
     _, num_features, num_points_sat = sat_desc.shape  # [B, D, N]
@@ -47,7 +52,10 @@ def matching_points(grd_desc, grd_scrs, sat_desc, sat_scrs, k=1024, temperature=
     # Compute similarity (scaled dot product)
     similarity = torch.matmul(sat_desc_topk.transpose(1, 2), grd_desc_topk) / temperature  # [B, K, K]
 
-    return similarity, sat_indices_topk, grd_indices_topk
+    # Full similarity for analysis (optional)
+    full_similarity = torch.matmul(sat_desc.transpose(1, 2), grd_desc) / temperature  # [B, N_sat, N_grd]
+    print("full_similarity_requires_grad:", full_similarity.requires_grad)
+    return similarity, sat_indices_topk, grd_indices_topk, full_similarity
 
 
 

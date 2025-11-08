@@ -52,9 +52,10 @@ class CVM_Thermal(nn.Module):
 
         # Ground Grid Queries
         self.grd_grid_queries = nn.Parameter(torch.rand(int(np.floor(grd_bev_res/2))+1, grd_bev_res, embed_dim), requires_grad=True)
+        # self.grd_grid_queries = nn.Parameter(torch.rand(grd_height_res, grd_bev_res, embed_dim), requires_grad=True) # Keep the shape
 
         # Self-Attention & Cross-Attention Layers
-        self.grd_attention_self = nn.ModuleList([SelfAttention(device, grd_bev_res, embed_dim) for _ in range(6)])
+        self.grd_attention_self = nn.ModuleList([SelfAttention(device, grd_bev_res, None, embed_dim) for _ in range(6)])
         self.grd_attention_cross = nn.ModuleList([CrossAttention(device, grd_bev_res, grd_height_res, embed_dim, grid_size_h=grid_size_h, grid_size_v=grid_size_v) for _ in range(6)])
         self.grd_ffn = nn.ModuleList([FFN(embed_dim) for _ in range(6)])
 
@@ -74,7 +75,11 @@ class CVM_Thermal(nn.Module):
                                             add_posEnc=add_posEnc_sat, use_softmax=True)
         
         # MLP to output keypoints
-        
+        self.keypoint_mlp = nn.Sequential(
+            nn.Linear(256, 256//2),
+            nn.ReLU(),
+            nn.Linear(256//2, 3)  # Output x, y coordinates + confidence score
+        )
 
     def forward(self, grd_feature, sat_feature):
         """
@@ -95,32 +100,44 @@ class CVM_Thermal(nn.Module):
 
         # Initialize ground queries
         grd_query = self.grd_grid_queries.view(-1, self.embed_dim).unsqueeze(0).expand(bs, -1, -1)
+        print("requires_grad check before transformer:", grd_query.requires_grad)
         grd_value = grd_feature.permute(0, 2, 3, 1).reshape(bs, -1, self.embed_dim).contiguous()
+        print("grd_value.shape:", grd_value.shape)
+        print("grd_query.shape:", grd_query.shape)
 
         # Transformer Iterations (Self + Cross Attention + FFN)
         for i in range(6):
             idx = i * 3  # Index for layer norm groups
 
             grd_query = self.grd_attention_self[i](grd_query)
+            print("grd_query.requires_grad after self-attention layer", i, ":", grd_query.requires_grad)
             grd_query = self.grd_layer_norms[idx](grd_query)
+            print(f"requires_grad after layer norm {idx}:", grd_query.requires_grad)
 
             grd_query, _ = self.grd_attention_cross[i](grd_query, grd_value)
+            print("grd_query.requires_grad after cross-attention layer", i, ":", grd_query.requires_grad)
             grd_query = self.grd_layer_norms[idx + 1](grd_query)
 
             grd_query = self.grd_ffn[i](grd_query)
             grd_query = self.grd_layer_norms[idx + 2](grd_query)
+            print("grd_query.requires_grad after layer", i, ":", grd_query.requires_grad)
+            print(f"After transformer layer {i}, grd_query.shape:", grd_query.shape)
 
         # Reshape ground query for processing
         grd_query = grd_query.permute(0, 2, 1).reshape(bs, self.embed_dim, int(np.floor(self.grd_bev_res/2))+1, self.grd_bev_res)
-
+        # grd_query = grd_query.permute(0, 2, 1).reshape(bs, self.embed_dim, self.grd_height_res, self.grd_bev_res)
+        print("grd_query reshaped for processing:", grd_query.shape)
         # Ground descriptors & scores
         grd_desc = self.grd_projector(grd_query)
         grd_scrs = self.grd_detector(grd_query, self.grd_attention_cross[i].keep_index)
 
+        grd_desc = F.interpolate(grd_desc, (self.grd_height_res, self.sat_bev_res), mode='bilinear', align_corners=False)
+        grd_scrs = F.interpolate(grd_scrs, (self.grd_height_res, self.sat_bev_res), mode='bilinear', align_corners=False)
+
         # Interpolate satellite features & compute descriptors & scores
-        sat_feature_bev = F.interpolate(sat_feature, (self.sat_bev_res, self.sat_bev_res), mode='bilinear', align_corners=False)
-        sat_desc = self.sat_projector(sat_feature_bev)
-        sat_scrs = self.sat_detector(sat_feature_bev)
+        # sat_feature_bev = F.interpolate(sat_feature, (self.sat_bev_res, self.sat_bev_res), mode='bilinear', align_corners=False)
+        sat_desc = self.sat_projector(sat_feature) # Don't make it square
+        sat_scrs = self.sat_detector(sat_feature)
 
 
         # Compute matching points
@@ -146,22 +163,33 @@ class CVM_Thermal(nn.Module):
         # 6
         # (B, topk, topk)
         # 1 2 3 4 5 6 7 8 9
+        print("grd_desc.shape before matching:", grd_desc.shape)
+        print("grd_scrs.shape before matching:", grd_scrs.shape)
+        print("sat_desc.shape before matching:", sat_desc.shape)
+        print("sat_scrs.shape before matching:", sat_scrs.shape)
 
-        matching_score_original, sat_indices_topk, grd_indices_topk = matching_points(
+        print("requires_grad check:", grd_desc.requires_grad, grd_scrs.requires_grad, sat_desc.requires_grad, sat_scrs.requires_grad)
+        matching_score_original, sat_indices_topk, grd_indices_topk, full_matching_score = matching_points(
             grd_desc, grd_scrs, sat_desc, sat_scrs, k=self.num_keypoints, temperature=self.temperature
         ) # only computes cosine similarity
 
 
-        # Construct Matching Score Matrix with Dustbin
-        b, m, n = matching_score_original.shape
-        bins0 = self.dustbin_score.expand(b, m, 1)
-        bins1 = self.dustbin_score.expand(b, 1, n)
-        alpha = self.dustbin_score.expand(b, 1, 1)
+        # # Construct Matching Score Matrix with Dustbin
+        # b, m, n = matching_score_original.shape
+        # bins0 = self.dustbin_score.expand(b, m, 1)
+        # bins1 = self.dustbin_score.expand(b, 1, n)
+        # alpha = self.dustbin_score.expand(b, 1, 1)
 
-        couplings = torch.cat([torch.cat([matching_score_original, bins0], -1),
-                               torch.cat([bins1, alpha], -1)], 1)
+        # couplings = torch.cat([torch.cat([matching_score_original, bins0], -1),
+        #                        torch.cat([bins1, alpha], -1)], 1)
 
-        couplings = F.softmax(couplings, dim=1) * F.softmax(couplings, dim=2)
-        matching_score = couplings[:, :-1, :-1]
+        # couplings = F.softmax(couplings, dim=1) * F.softmax(couplings, dim=2)
+        # matching_score = couplings[:, :-1, :-1]
 
-        return matching_score, sat_desc.flatten(2), grd_desc.flatten(2), sat_indices_topk, grd_indices_topk, matching_score_original
+        return full_matching_score, sat_desc.flatten(2), grd_desc.flatten(2), sat_indices_topk, grd_indices_topk, matching_score_original
+        # sat_keypoints = self.keypoint_mlp(sat_indices_topk.float())
+        # grd_keypoints = self.keypoint_mlp(grd_indices_topk.float())
+        # # interpolate to image size
+        # sat_keypoints = F.interpolate(sat_keypoints, size=(392, 518), mode='bilinear', align_corners=False)
+        # grd_keypoints = F.interpolate(grd_keypoints, size=(392, 518), mode='bilinear', align_corners=False)
+        # return sat_keypoints, grd_keypoints

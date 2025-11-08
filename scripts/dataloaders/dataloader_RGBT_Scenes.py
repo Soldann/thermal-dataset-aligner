@@ -106,18 +106,18 @@ class RGBT_Scenes_Dataset(Dataset):
                 else:
                     print("loading cached keypoints for image pair:", image1, image2)
                     img1_list, img2_list, kpts1_list, kpts2_list, conf_list = torch.load(self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
-                self.image1_list.extend(img1_list)
-                self.image2_list.extend(img2_list)
-                self.kpts1_list.extend(kpts1_list)
-                self.kpts2_list.extend(kpts2_list)
-                self.conf_list.extend(conf_list)
+                self.image1_list.extend([img1.cpu() for img1 in img1_list]) # Make sure on cpu
+                self.image2_list.extend([img2.cpu() for img2 in img2_list])
+                self.kpts1_list.extend([kpts1.cpu() for kpts1 in kpts1_list])
+                self.kpts2_list.extend([kpts2.cpu() for kpts2 in kpts2_list])
+                self.conf_list.extend([conf.cpu() for conf in conf_list])
         else:
             img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pairs)
-            self.image1_list = img1_list
-            self.image2_list = img2_list
-            self.kpts1_list = kpts1_list
-            self.kpts2_list = kpts2_list
-            self.conf_list = conf_list
+            self.image1_list = [img1.cpu() for img1 in img1_list]
+            self.image2_list = [img2.cpu() for img2 in img2_list]
+            self.kpts1_list = [kpts1.cpu() for kpts1 in kpts1_list]
+            self.kpts2_list = [kpts2.cpu() for kpts2 in kpts2_list]
+            self.conf_list = [conf.cpu() for conf in conf_list]
 
     def get_full_satellite_map(self):
         if not hasattr(self, '_full_satellite_map'):
@@ -211,8 +211,10 @@ class RGBT_Scenes_Dataset(Dataset):
         angle_deg = (yaw_rad / np.pi * 180) - 90 # 0 means heading north, clockwise increasing, degrees
         return angle_deg * (np.pi/180)
 
-RGBT_Scenes_Dataset(
-    root='/home/landson/RGBT-Scenes/Building',
-    split='train',
-    low_memory_mode=True
-)
+if __name__ == "__main__":
+    data = RGBT_Scenes_Dataset(
+        root='/home/landson/RGBT-Scenes/Building',
+        split='train',
+        low_memory_mode=True
+    )
+    print(len(data))

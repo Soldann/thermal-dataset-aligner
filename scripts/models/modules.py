@@ -17,7 +17,10 @@ if dataset == 'RobotCar':
     raw_ground_image_size = ast.literal_eval(config.get("RobotCar", "raw_ground_image_size"))
     cropped_ground_image_size = ast.literal_eval(config.get("RobotCar", "cropped_ground_image_size"))
     ground_image_size = ast.literal_eval(config.get("RobotCar", "ground_image_size"))
-
+if dataset == 'RGBT_Scenes':
+    raw_ground_image_size = ast.literal_eval(config.get("RGBT_Scenes", "raw_ground_image_size"))
+    cropped_ground_image_size = ast.literal_eval(config.get("RGBT_Scenes", "cropped_ground_image_size"))
+    ground_image_size = ast.literal_eval(config.get("RGBT_Scenes", "ground_image_size"))
 
 class DinoExtractor(nn.Module):
     """
@@ -285,21 +288,23 @@ class SelfAttention_robotcar(nn.Module):
     Self-Attention Mechanism for Feature Refinement.
     """
 
-    def __init__(self, device, bev_res, embed_dim=128):
+    def __init__(self, device, bev_res, bev_height_res=None, embed_dim=128):
         super().__init__()
         self.device = device
         self.embed_dim = embed_dim
         self.bev_res = bev_res
+        self.bev_height_res = bev_height_res if bev_height_res is not None else int(np.floor(bev_res/2))+1
 
         # Generate BEV grid reference points
         grd_row, grd_col = np.meshgrid(np.linspace(0, 1, int(np.floor(bev_res/2))+1), np.linspace(0, 1, bev_res), indexing='ij')
+        # grd_row, grd_col = np.meshgrid(np.linspace(0, 1, self.bev_height_res), np.linspace(0, 1, bev_res), indexing='ij')
         self.grd_reference_points = torch.tensor(np.stack((grd_col, grd_row), axis=-1), dtype=torch.float32).to(device)
         self.grd_reference_points = self.grd_reference_points.view(-1, 2).unsqueeze(1)
 
         # Spatial Shape & Level Start Index
         self.grd_spatial_shape = torch.tensor([[int(np.floor(bev_res/2))+1, bev_res]], device=device, dtype=torch.long)
+        # self.grd_spatial_shape = torch.tensor([[self.bev_height_res, bev_res]], device=device, dtype=torch.long)
         self.level_start_index = torch.tensor([0], device=device, dtype=torch.long)
-
         # Self-Attention Mechanism
         self.grd_attention_self = MultiScaleDeformableAttention(embed_dims=embed_dim, num_heads=8, num_levels=1, num_points=4, batch_first=True)
 
@@ -309,9 +314,16 @@ class SelfAttention_robotcar(nn.Module):
         grd_reference_points = self.grd_reference_points.unsqueeze(0).expand(bs, -1, -1, -1)
 
         # Apply Self-Attention
+        print("query.shape:", query.shape)
+        print("query.device:", query.device)
+        print("grd_reference_points.device:", grd_reference_points.device)
+        print("grd_spatial_shape.device:", self.grd_spatial_shape.device)
+        print("level_start_index.device:", self.level_start_index.device)
+        print("query.requires_grad before self-attention:", query.requires_grad)
         grd_bev = self.grd_attention_self(query=query, value=query, reference_points=grd_reference_points,
                                           spatial_shapes=self.grd_spatial_shape, level_start_index=self.level_start_index)
-
+        print("grd_bev.requires_grad after self-attention:", grd_bev.requires_grad)
+        print("sum requires_grad:", (grd_bev + residual).requires_grad)
         return grd_bev + residual
         
 class CrossAttention(nn.Module):
@@ -445,7 +457,8 @@ class CrossAttention_robotcar(nn.Module):
             grd_reference_points = torch.stack((self.u[:,:,i], self.v[:,:,i]), dim=-1)
             grd_reference_points = grd_reference_points.view(-1, 2).unsqueeze(1).unsqueeze(0).expand(bs, -1, -1, -1)
             
-            
+            print("query.shape:", query.shape)
+            print("spatial_shapes:", self.grd_spatial_shape_cross)
             # Apply Cross-Attention
             grd_bev = self.grd_attention_cross(query=query, value=value, reference_points=grd_reference_points,
                                                spatial_shapes=self.grd_spatial_shape_cross, level_start_index=self.level_start_index)
