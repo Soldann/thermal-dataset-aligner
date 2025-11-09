@@ -40,7 +40,6 @@ from keypoint_patches import compute_patch_matches, visualize_patch_matches
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-device = "cpu"  # Force CPU for debugging
 print(f"Using device: {device}")
 
 # Set random seeds for reproducibility from config
@@ -181,7 +180,6 @@ for epoch in range(epoch_to_resume, 100):
         img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
 
         # Obtain matching scores and descriptors
-        CVM_model.train()
         matching_score, img2_desc, img1_desc, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
         # kpts1_pred, kpts2_pred = CVM_model(img1_feature, img2_feature)
 
@@ -192,10 +190,12 @@ for epoch in range(epoch_to_resume, 100):
         print("img2_indices_topk:", img2_indices_topk)
         # print("kpts1_pred.shape:", kpts1_pred.shape)
         # print("kpts2_pred.shape:", kpts2_pred.shape)
+        print("matching_score_original:", matching_score_original)
         print("matching_score:", matching_score)
 
         # Compute patch matches from gt keypoints
         patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
+        max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
         print("patches_1 shape:", patches_1.shape)
         print("patches_2 shape:", patches_2.shape)
         print("patches_1:", patches_1)
@@ -212,9 +212,17 @@ for epoch in range(epoch_to_resume, 100):
         # # Scatter scores into logits
         # img1_predictions.scatter_(1, img1_indices_topk, diag_scores)
         # img2_predictions.scatter_(1, img2_indices_topk, diag_scores)
-        print(matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze(0)[:patches_1.shape[0], :].shape, patches_1.shape)
-        print(matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze(0)[:patches_2.shape[0], :].shape, patches_2.shape)
-        distance_loss = F.cross_entropy(matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze()[:patches_1.shape[0], :], patches_1.to(device)) + F.cross_entropy(matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze()[:patches_2.shape[0], :], patches_2.to(device))
+        print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
+        print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
+        img1_loss = F.cross_entropy(
+            matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+            patches_1[:max_keypoints_for_comparison].to(device)
+            ) 
+        img2_loss = F.cross_entropy(
+                matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                patches_2[:max_keypoints_for_comparison].to(device)
+            )
+        distance_loss = img1_loss + img2_loss
         print("distance_loss:", distance_loss.item())
         # Backpropagation
         optimizer.zero_grad()
@@ -248,18 +256,18 @@ for epoch in range(epoch_to_resume, 100):
             translation_error, yaw_error = [], []
 
             # for i, data in enumerate(train_dataloader, 0):
-            data = train_dataloader.dataset[torch.randint(len(train_dataloader.dataset))]
-            grd, sat, kpts1, kpts2 = data
-            B, _, sat_size, _ = sat.shape
+            index = torch.randint(0, len(train_dataloader.dataset), (1,)).item()
+            data = train_dataloader.dataset[index]
+            img1, img2, kpts1, kpts2, conf = data
 
-            grd, sat, kpts1, kpts2 = grd.to(device), sat.to(device), kpts1.to(device), kpts2.to(device)
+            img1, img2, kpts1, kpts2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device)
 
-            grd_feature, sat_feature = shared_feature_extractor(grd), shared_feature_extractor(sat)
+            img1_feature, img2_feature = shared_feature_extractor(img1.unsqueeze(0)), shared_feature_extractor(img2.unsqueeze(0))
     
-            matching_score, sat_desc, grd_desc, sat_indices_topk, grd_indices_topk, matching_score_original = CVM_model(grd_feature, sat_feature)
+            matching_score, sat_desc, grd_desc, sat_indices_topk, grd_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
             # _, num_kpts_sat, num_kpts_grd = matching_score.shape
             patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
-            visualize_patch_matches(grd.squeeze(0).permute(1,2,0).cpu().numpy(), sat.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(patches_1.cpu().numpy(), patches_2.cpu().numpy())), patch_size=14)
+            visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(patches_1.cpu().numpy(), patches_2.cpu().numpy())), patch_size=14)
                 # # Sample training matches
                 # matches_row = matching_score.flatten(1)
                 # batch_idx = torch.arange(B).view(B, 1).repeat(1, num_samples_matches).reshape(B, num_samples_matches)

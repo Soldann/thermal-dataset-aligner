@@ -83,6 +83,8 @@ class RGBT_Scenes_Dataset(Dataset):
         self.thermal_images = glob.glob(str(self.root / 'thermal' / 'test' / '*.jpg'))
         self.rgb_images = glob.glob(str(self.root / 'rgb' / 'test' / '*.jpg'))
         # self.rgb_images = glob.glob(os.path.join(self.root, 'rgb', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'rgb', 'test', '*.jpg'))
+        self.thermal_images.sort()
+        self.rgb_images.sort()
 
         # Sample from all combinations of thermal images within a sliding window of 5 images
         self.image_pairs = []
@@ -99,13 +101,18 @@ class RGBT_Scenes_Dataset(Dataset):
         (self.root / self.split / 'keypoint_cache').mkdir(parents=True, exist_ok=True)
         if low_memory_mode:
             for image1, image2 in self.image_pairs:
-                print("processing image pair:", image1, image2)
+                print("processing image pair:", image1, image2, "corresponding to files:", self.thermal_images[image1], self.thermal_images[image2])
                 if not (self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt").exists():
                     img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[image1], self.rgb_images[image2]], [self.thermal_images[image1], self.thermal_images[image2]], [ImageModality.thermal]*2)
                     torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list), self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
                 else:
                     print("loading cached keypoints for image pair:", image1, image2)
                     img1_list, img2_list, kpts1_list, kpts2_list, conf_list = torch.load(self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                
+                if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
+                    print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
+                    raise ValueError("No keypoints found.")
+                
                 self.image1_list.extend([img1.cpu() for img1 in img1_list]) # Make sure on cpu
                 self.image2_list.extend([img2.cpu() for img2 in img2_list])
                 self.kpts1_list.extend([kpts1.cpu() for kpts1 in kpts1_list])

@@ -100,33 +100,28 @@ class CVM_Thermal(nn.Module):
 
         # Initialize ground queries
         grd_query = self.grd_grid_queries.view(-1, self.embed_dim).unsqueeze(0).expand(bs, -1, -1)
-        print("requires_grad check before transformer:", grd_query.requires_grad)
         grd_value = grd_feature.permute(0, 2, 3, 1).reshape(bs, -1, self.embed_dim).contiguous()
-        print("grd_value.shape:", grd_value.shape)
-        print("grd_query.shape:", grd_query.shape)
+        # print("grd_value.shape:", grd_value.shape)
+        # print("grd_query.shape:", grd_query.shape)
 
         # Transformer Iterations (Self + Cross Attention + FFN)
         for i in range(6):
             idx = i * 3  # Index for layer norm groups
 
             grd_query = self.grd_attention_self[i](grd_query)
-            print("grd_query.requires_grad after self-attention layer", i, ":", grd_query.requires_grad)
             grd_query = self.grd_layer_norms[idx](grd_query)
-            print(f"requires_grad after layer norm {idx}:", grd_query.requires_grad)
 
             grd_query, _ = self.grd_attention_cross[i](grd_query, grd_value)
-            print("grd_query.requires_grad after cross-attention layer", i, ":", grd_query.requires_grad)
             grd_query = self.grd_layer_norms[idx + 1](grd_query)
 
             grd_query = self.grd_ffn[i](grd_query)
             grd_query = self.grd_layer_norms[idx + 2](grd_query)
-            print("grd_query.requires_grad after layer", i, ":", grd_query.requires_grad)
-            print(f"After transformer layer {i}, grd_query.shape:", grd_query.shape)
+            # print(f"After transformer layer {i}, grd_query.shape:", grd_query.shape)
 
         # Reshape ground query for processing
         grd_query = grd_query.permute(0, 2, 1).reshape(bs, self.embed_dim, int(np.floor(self.grd_bev_res/2))+1, self.grd_bev_res)
         # grd_query = grd_query.permute(0, 2, 1).reshape(bs, self.embed_dim, self.grd_height_res, self.grd_bev_res)
-        print("grd_query reshaped for processing:", grd_query.shape)
+        # print("grd_query reshaped for processing:", grd_query.shape)
         # Ground descriptors & scores
         grd_desc = self.grd_projector(grd_query)
         grd_scrs = self.grd_detector(grd_query, self.grd_attention_cross[i].keep_index)
@@ -139,7 +134,10 @@ class CVM_Thermal(nn.Module):
         sat_desc = self.sat_projector(sat_feature) # Don't make it square
         sat_scrs = self.sat_detector(sat_feature)
 
-
+        print("grd_dsc", grd_desc)
+        print("sat_dsc", sat_desc)
+        print("grd_src", grd_scrs)
+        print("sat_src", sat_scrs)
         # Compute matching points
         # (B, w*h, w*h) -> (B, topk, topk)
         # 1 2 3
@@ -163,12 +161,11 @@ class CVM_Thermal(nn.Module):
         # 6
         # (B, topk, topk)
         # 1 2 3 4 5 6 7 8 9
-        print("grd_desc.shape before matching:", grd_desc.shape)
-        print("grd_scrs.shape before matching:", grd_scrs.shape)
-        print("sat_desc.shape before matching:", sat_desc.shape)
-        print("sat_scrs.shape before matching:", sat_scrs.shape)
+        # print("grd_desc.shape before matching:", grd_desc.shape)
+        # print("grd_scrs.shape before matching:", grd_scrs.shape)
+        # print("sat_desc.shape before matching:", sat_desc.shape)
+        # print("sat_scrs.shape before matching:", sat_scrs.shape)
 
-        print("requires_grad check:", grd_desc.requires_grad, grd_scrs.requires_grad, sat_desc.requires_grad, sat_scrs.requires_grad)
         matching_score_original, sat_indices_topk, grd_indices_topk, full_matching_score = matching_points(
             grd_desc, grd_scrs, sat_desc, sat_scrs, k=self.num_keypoints, temperature=self.temperature
         ) # only computes cosine similarity

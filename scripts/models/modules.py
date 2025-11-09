@@ -314,16 +314,8 @@ class SelfAttention_robotcar(nn.Module):
         grd_reference_points = self.grd_reference_points.unsqueeze(0).expand(bs, -1, -1, -1)
 
         # Apply Self-Attention
-        print("query.shape:", query.shape)
-        print("query.device:", query.device)
-        print("grd_reference_points.device:", grd_reference_points.device)
-        print("grd_spatial_shape.device:", self.grd_spatial_shape.device)
-        print("level_start_index.device:", self.level_start_index.device)
-        print("query.requires_grad before self-attention:", query.requires_grad)
         grd_bev = self.grd_attention_self(query=query, value=query, reference_points=grd_reference_points,
                                           spatial_shapes=self.grd_spatial_shape, level_start_index=self.level_start_index)
-        print("grd_bev.requires_grad after self-attention:", grd_bev.requires_grad)
-        print("sum requires_grad:", (grd_bev + residual).requires_grad)
         return grd_bev + residual
         
 class CrossAttention(nn.Module):
@@ -457,8 +449,6 @@ class CrossAttention_robotcar(nn.Module):
             grd_reference_points = torch.stack((self.u[:,:,i], self.v[:,:,i]), dim=-1)
             grd_reference_points = grd_reference_points.view(-1, 2).unsqueeze(1).unsqueeze(0).expand(bs, -1, -1, -1)
             
-            print("query.shape:", query.shape)
-            print("spatial_shapes:", self.grd_spatial_shape_cross)
             # Apply Cross-Attention
             grd_bev = self.grd_attention_cross(query=query, value=value, reference_points=grd_reference_points,
                                                spatial_shapes=self.grd_spatial_shape_cross, level_start_index=self.level_start_index)

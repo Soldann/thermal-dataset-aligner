@@ -127,7 +127,7 @@ class DatasetCorrespondencerConfigurator:
         correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), self.alignment_method.value(), self.debug_mode)
         # correspondencer.feature_matcher.debug_mode = self.debug_mode
         if self.dataset_format == DatasetFormat.RGBT_Scenes:
-            kpts1, kpts2, conf = correspondencer.compute_correspondences_from_RGBT_Scenes([self.image1_path, self.image2_path])
+            og_image1, og_image2, kpts1, kpts2, conf = correspondencer.compute_correspondences_from_RGBT_Scenes([self.image1_path, self.image2_path])
 
 
 if __name__ == "__main__":
