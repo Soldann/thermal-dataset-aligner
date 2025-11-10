@@ -8,6 +8,8 @@ from DINO_modules.dinov2 import vit_large
 from att_layers.transformer import Transformer_self_att
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttention
 
+import matplotlib.pyplot as plt
+
 import configparser
 import ast
 config = configparser.ConfigParser()
@@ -133,7 +135,7 @@ class DeepResBlockDet(nn.Module):
 
         self.att_layer = Transformer_self_att(d_model=128, num_layers=3, add_posEnc=add_posEnc)
         self.final_block = BasicBlock(block_dims[2], block_dims[3], bn=bn, padding_mode=padding_mode)
-        self.score = nn.Conv2d(block_dims[3], 1, kernel_size=1, bias=False)
+        self.score = nn.Conv2d(block_dims[3], 1, kernel_size=1, stride=1, padding=0, bias=False)
 
         self.use_softmax = use_softmax
         self.eps = 1e-16
@@ -153,44 +155,49 @@ class DeepResBlockDet(nn.Module):
         x = self.final_block(x)
 
         scores = self.score(x)
+        # plt.imshow(scores[0].permute(1,2,0).cpu().detach().numpy())
+        # plt.colorbar()
+        # plt.show()
+
+        
         return (
-            self.remove_borders(F.softmax(scores / 100, dim=-1), 3) if self.use_softmax
+            self.remove_borders(F.softmax(scores, dim=-1), 3) if self.use_softmax
             else self.remove_borders(torch.sigmoid(scores), 3)
         )
 
-class DeepResBlock_depth(torch.nn.Module):
-    def __init__(self, bn, in_channels, block_dims, add_posEnc, use_depth_sigmoid, max_depth, padding_mode = 'zeros'):
-        super().__init__()
+# class DeepResBlock_depth(torch.nn.Module):
+#     def __init__(self, bn, in_channels, block_dims, add_posEnc, use_depth_sigmoid, max_depth, padding_mode = 'zeros'):
+#         super().__init__()
 
-        self.use_depth_sigmoid = use_depth_sigmoid
-        self.max_depth = max_depth
-        self.sigmoid = torch.nn.Sigmoid()
+#         self.use_depth_sigmoid = use_depth_sigmoid
+#         self.max_depth = max_depth
+#         self.sigmoid = torch.nn.Sigmoid()
 
-        self.resblock1 = BasicBlock(in_channels, block_dims[0], stride=1, bn=bn, padding_mode=padding_mode)
-        self.resblock2 = BasicBlock(block_dims[0], block_dims[1], stride=1, bn=bn, padding_mode=padding_mode)
-        self.resblock3 = BasicBlock(block_dims[1], block_dims[2], stride=1, bn=bn, padding_mode=padding_mode)
-        self.resblock4 = BasicBlock(block_dims[2], block_dims[3], stride=1, bn=bn, padding_mode=padding_mode)
+#         self.resblock1 = BasicBlock(in_channels, block_dims[0], stride=1, bn=bn, padding_mode=padding_mode)
+#         self.resblock2 = BasicBlock(block_dims[0], block_dims[1], stride=1, bn=bn, padding_mode=padding_mode)
+#         self.resblock3 = BasicBlock(block_dims[1], block_dims[2], stride=1, bn=bn, padding_mode=padding_mode)
+#         self.resblock4 = BasicBlock(block_dims[2], block_dims[3], stride=1, bn=bn, padding_mode=padding_mode)
 
-        self.depth = nn.Conv2d(block_dims[3], 1, kernel_size=1, stride=1, padding=0, bias=False)
+#         self.depth = nn.Conv2d(block_dims[3], 1, kernel_size=1, stride=1, padding=0, bias=False)
 
-        self.att_layer = Transformer_self_att(d_model=128, num_layers=3, add_posEnc=add_posEnc)
+#         self.att_layer = Transformer_self_att(d_model=128, num_layers=3, add_posEnc=add_posEnc)
 
-    def forward(self, feature_volume):
+#     def forward(self, feature_volume):
 
-        x = self.resblock1(feature_volume)
-        x = self.resblock2(x)
-        x = self.resblock3(x)
-        x = self.att_layer(x)
-        x = self.resblock4(x)
+#         x = self.resblock1(feature_volume)
+#         x = self.resblock2(x)
+#         x = self.resblock3(x)
+#         x = self.att_layer(x)
+#         x = self.resblock4(x)
 
-        # Predict xy depths
-        # depths = torch.clip(self.depth(x), min=1e-3, max=500)
-        if self.use_depth_sigmoid:
-            depths = self.max_depth * self.sigmoid(self.depth(x))
-        else:
-            depths = self.depth(x)
+#         # Predict xy depths
+#         # depths = torch.clip(self.depth(x), min=1e-3, max=500)
+#         if self.use_depth_sigmoid:
+#             depths = self.max_depth * self.sigmoid(self.depth(x))
+#         else:
+#             depths = self.depth(x)
 
-        return depths
+#         return depths
 
 class DeepResBlockDet_with_mask(nn.Module):
     """
@@ -463,3 +470,50 @@ class CrossAttention_robotcar(nn.Module):
         grd_bev = (weights * grd_3d).sum(dim=3)
 
         return grd_bev.view(bs, -1, self.embed_dim) + residual, max_height_index
+
+
+class ScalePredictor(nn.Module):
+    def __init__(self, img_feat_dim):
+        super().__init__()
+
+        # Depth encoder: encodes the downsampled depth map into compact feature
+        self.depth_encoder = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d((1, 1))  # Global pooling for invariance
+        )
+
+        # Fully connected layers to predict scale
+        self.fc = nn.Sequential(
+            nn.Linear(img_feat_dim + 32, 128),
+            nn.ReLU(inplace=True),
+            nn.Linear(128, 1)  # Output: [scale_raw]
+        )
+
+    def forward(self, img_features, depth_map):
+        """
+        Args:
+            img_features: [B, C, H, W] - DINOv2 features (before pooling)
+            depth_map: [B, 1, H, W] - downsampled relative depth map
+
+        Returns:
+            scale: [B,] - positive scale
+        """
+        # Encode depth features
+        depth_features = self.depth_encoder(depth_map)  # [B, 32, 1, 1]
+        depth_features = depth_features.view(depth_features.size(0), -1)  # [B, 32]
+
+        # Global average pool image features (make invariant to panorama rotation)
+        img_features_pooled = img_features.mean(dim=-1).mean(dim=-1)  # [B, img_feat_dim]
+
+        # Fuse features
+        fused_features = torch.cat([img_features_pooled, depth_features], dim=-1)  # [B, img_feat_dim + 32]
+
+        # Predict scale 
+        out = self.fc(fused_features)
+        scale_raw = out[:, 0]
+
+        # Force scale to be positive
+        scale = torch.exp(torch.tanh(scale_raw))
+
+        return scale
