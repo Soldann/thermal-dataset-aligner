@@ -77,7 +77,7 @@ class RGBT_Scenes_Dataset(Dataset):
         # self.transform_coords = self._compute_coord_transform()
 
         # self.meters_per_pixel = 0.09240351462361521 * 800 / satellite_image_size[0]
-        self.data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), FeatureAligner())
+        self.data_correspondencer = None
 
         # self.thermal_images = glob.glob(os.path.join(self.root, 'thermal', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'thermal', 'test', '*.jpg'))
         self.thermal_images = glob.glob(str(self.root / 'thermal' / 'test' / '*.jpg'))
@@ -103,6 +103,8 @@ class RGBT_Scenes_Dataset(Dataset):
             for image1, image2 in self.image_pairs:
                 print("processing image pair:", image1, image2, "corresponding to files:", self.thermal_images[image1], self.thermal_images[image2])
                 if not (self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt").exists():
+                    if self.data_correspondencer is None:
+                        self.data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), FeatureAligner())
                     img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[image1], self.rgb_images[image2]], [self.thermal_images[image1], self.thermal_images[image2]], [ImageModality.thermal]*2)
                     torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list), self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
                 else:
