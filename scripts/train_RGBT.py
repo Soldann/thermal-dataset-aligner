@@ -60,7 +60,7 @@ if machine == 'local':
     dataset_root = config["RGBT_Scenes"]["local_dataset_root"]
     batch_size = config.getint("RGBT_Scenes", "batch_size")
     learning_rate = config.getfloat("Training", "learning_rate")
-    epoch_to_resume = config.getint("Training", "epoch_to_resume")
+    epoch_to_resume = epoch_to_resume if epoch_to_resume > 0 else config.getint("Training", "epoch_to_resume")
     beta = config.getfloat("Loss", "beta")
 
 elif machine == 'scitas':
@@ -121,7 +121,8 @@ CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_heig
 
 # Load checkpoint if resuming training
 if epoch_to_resume > 0:
-    model_path = f'/work/vita/zimin/CVM_3D/checkpoints/{label}/{epoch_to_resume-1}/model.pt'
+    print("Resuming training from epoch", epoch_to_resume)
+    model_path = f'../checkpoints/{label}/{epoch_to_resume-1}/model.pt'
     CVM_model.load_state_dict(torch.load(model_path))
     
 CVM_model.to(device)
@@ -159,13 +160,14 @@ metric_coord4loss = create_metric_grid(loss_grid_size, (num_virtual_point, num_v
 # Training Loop
 # -------------------------
 for epoch in range(epoch_to_resume, 100):
-    # print(f'🚀 Epoch {epoch} - Training...')
+    print(f'🚀 Epoch {epoch} - Training...')
     
     running_loss = 0.0
     CVM_model.train()
 
     for i, data in enumerate(train_dataloader, 0):
         img1, img2, kpts1, kpts2, conf = data
+        print("Batch", i, "image shapes:", img1.shape, img2.shape)
         # grd, sat, tgt, Rgt = data
         # B, _, sat_size, _ = sat.shape
 
@@ -183,25 +185,25 @@ for epoch in range(epoch_to_resume, 100):
         matching_score, img2_desc, img1_desc, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
         # kpts1_pred, kpts2_pred = CVM_model(img1_feature, img2_feature)
 
-        print("matching_score.shape:", matching_score.shape)
-        print("indices shape:", img1_indices_topk.shape, img2_indices_topk.shape)
-        print("matching_score_original.shape:", matching_score_original.shape)
-        print("img1_indices_topk:", img1_indices_topk)
-        print("img2_indices_topk:", img2_indices_topk)
-        # print("kpts1_pred.shape:", kpts1_pred.shape)
-        # print("kpts2_pred.shape:", kpts2_pred.shape)
-        print("matching_score_original:", matching_score_original)
-        print("matching_score:", matching_score)
+        # print("matching_score.shape:", matching_score.shape)
+        # print("indices shape:", img1_indices_topk.shape, img2_indices_topk.shape)
+        # print("matching_score_original.shape:", matching_score_original.shape)
+        # print("img1_indices_topk:", img1_indices_topk)
+        # print("img2_indices_topk:", img2_indices_topk)
+        # # print("kpts1_pred.shape:", kpts1_pred.shape)
+        # # print("kpts2_pred.shape:", kpts2_pred.shape)
+        # print("matching_score_original:", matching_score_original)
+        # print("matching_score:", matching_score)
 
         # Compute patch matches from gt keypoints
         patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
         max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
-        print("patches_1 shape:", patches_1.shape)
-        print("patches_2 shape:", patches_2.shape)
-        print("patches_1:", patches_1)
-        print("patches_1 max min:", patches_1.max(), patches_1.min())
-        print("patches_2:", patches_2)
-        print("patches_2 max min:", patches_2.max(), patches_2.min())
+        # print("patches_1 shape:", patches_1.shape)
+        # print("patches_2 shape:", patches_2.shape)
+        # print("patches_1:", patches_1)
+        # print("patches_1 max min:", patches_1.max(), patches_1.min())
+        # print("patches_2:", patches_2)
+        # print("patches_2 max min:", patches_2.max(), patches_2.min())
         
         # Compute losses
         # img1_predictions = torch.zeros((1, 256, 28*37))
@@ -226,7 +228,6 @@ for epoch in range(epoch_to_resume, 100):
         print("distance_loss:", distance_loss.item())
         # Backpropagation
         optimizer.zero_grad()
-        print("requires_grad:", distance_loss.requires_grad, matching_score.requires_grad)  # should be True
         distance_loss.backward()
         optimizer.step()
 
@@ -240,6 +241,7 @@ for epoch in range(epoch_to_resume, 100):
         os.makedirs(model_dir)
     print('save checkpoint at '+model_dir)
     torch.save(CVM_model.cpu().state_dict(), model_dir+'model.pt') # saving model
+    # CVM_model.load_state_dict(torch.load(model_dir+'model.pt'))
     CVM_model.cuda() # moving model to GPU for further training
     
     # -------------------------
@@ -253,77 +255,48 @@ for epoch in range(epoch_to_resume, 100):
 
         with torch.no_grad():
             CVM_model.eval()
-            translation_error, yaw_error = [], []
+            distance_error = []
 
-            # for i, data in enumerate(train_dataloader, 0):
-            index = torch.randint(0, len(train_dataloader.dataset), (1,)).item()
-            data = train_dataloader.dataset[index]
-            img1, img2, kpts1, kpts2, conf = data
+            visualization_index = torch.randint(0, len(train_dataloader.dataset), (1,)).item()
+            # visualization_index = 0
+            for i, data in enumerate(train_dataloader, 0):
+                img1, img2, kpts1, kpts2, conf = data
 
-            img1, img2, kpts1, kpts2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device)
+                img1, img2, kpts1, kpts2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device)
 
-            img1_feature, img2_feature = shared_feature_extractor(img1.unsqueeze(0)), shared_feature_extractor(img2.unsqueeze(0))
-    
-            matching_score, sat_desc, grd_desc, sat_indices_topk, grd_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
-            # _, num_kpts_sat, num_kpts_grd = matching_score.shape
-            patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
-            visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(patches_1.cpu().numpy(), patches_2.cpu().numpy())), patch_size=14)
-                # # Sample training matches
-                # matches_row = matching_score.flatten(1)
-                # batch_idx = torch.arange(B).view(B, 1).repeat(1, num_samples_matches).reshape(B, num_samples_matches)
-                # sampled_matching_idx = torch.multinomial(matches_row, num_samples_matches)
-
-                # sampled_matching_row = torch.div(sampled_matching_idx, num_kpts_grd, rounding_mode='trunc')
-                # sampled_matching_col = sampled_matching_idx % num_kpts_grd
-
-                # sat_indices_sampled = torch.gather(sat_indices_topk.squeeze(1), 1, sampled_matching_row)
-                # grd_indices_sampled = torch.gather(grd_indices_topk.squeeze(1), 1, sampled_matching_col)
-
-                # X, Y, weights = metric_coord_sat_B[batch_idx, sat_indices_sampled, :], metric_coord_grd_B[batch_idx, grd_indices_sampled, :], matches_row[batch_idx, sampled_matching_idx]
-                # R, t, ok_rank = weighted_procrustes_2d(X, Y, use_weights=True, use_mask=True, w=weights)
-
-                # if t is None:
-                #     print('⚠️ Skipping batch: Singular transformation matrix')
-                #     continue
+                img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
+        
+                matching_score, img2_desc, img1_desc, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
+                # _, num_kpts_sat, num_kpts_grd = matching_score.shape
+                patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
+                max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
+                if i == visualization_index:
+                    visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk.reshape(num_keypoints,).cpu().numpy(), img2_indices_topk.reshape(num_keypoints,).cpu().numpy())), patch_size=14)
                 
-                # # Compute translation error
-                # t = (t / grid_size_h) * sat_size
-                # translation_error.extend(torch.norm(t - tgt, dim=-1).cpu().numpy())
-
-                # # Compute yaw error
-                # Rgt_np, R_np = Rgt.cpu().numpy(), R.cpu().numpy()
-                # for b in range(B):
-                #     cos = R_np[b,0,0]
-                #     sin = R_np[b,1,0]
-                #     yaw = np.degrees( np.arctan2(sin, cos) )            
-                    
-                #     cos_gt = Rgt_np[b,0,0]
-                #     sin_gt = Rgt_np[b,1,0]
-                    
-                #     yaw_gt = np.degrees( np.arctan2(sin_gt, cos_gt) )
-                    
-                #     diff = np.abs(yaw - yaw_gt)
-        
-                    # yaw_error.append(np.min([diff, 360-diff]))          
-
-            # translation_error_mean = np.mean(translation_error)    
-            # translation_error_median = np.median(translation_error)
+                img1_loss = F.cross_entropy(
+                    matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                    patches_1[:max_keypoints_for_comparison].to(device)
+                    ) 
+                img2_loss = F.cross_entropy(
+                        matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                        patches_2[:max_keypoints_for_comparison].to(device)
+                    )
+                distance_loss = img1_loss + img2_loss
+                distance_error.append(distance_loss.item())       
             
-            # yaw_error_mean = np.mean(yaw_error)    
-            # yaw_error_median = np.median(yaw_error) 
+            distance_error_mean = np.mean(distance_error)    
+            distance_error_median = np.median(distance_error) 
         
-            # print(f'📉 Mean Translation Error: {translation_error_mean:.3f}')
-            # print(f'📉 Median Translation Error: {translation_error_median:.3f}')
-            # print(f'📉 Mean Yaw Error: {yaw_error_mean:.3f}')
-            # print(f'📉 Median Yaw Error: {yaw_error_median:.3f}')
+            print(f'📉 Mean Distance Error: {distance_error_mean:.3f}')
+            print(f'📉 Median Distance Error: {distance_error_median:.3f}')
             
-            # file = results_dir+'Mean_distance_error.txt'
-            # with open(file,'ab') as f:
-            #     np.savetxt(f, [translation_error_mean], fmt='%4f', header='Training_set_mean_distance_error_in_pixels:', comments=str(epoch)+'_')
+            file = results_dir+'Mean_distance_error.txt'
+            with open(file,'ab') as f:
+                np.savetxt(f, [distance_error_mean], fmt='%4f', header='Training_set_mean_distance_error_in_pixels:', comments=str(epoch)+'_')
         
-            # file = results_dir+'Median_distance_error.txt'
-            # with open(file,'ab') as f:
-            #     np.savetxt(f, [translation_error_median], fmt='%4f', header='Training_set_median_distance_error_in_pixels:', comments=str(epoch)+'_')
+            file = results_dir+'Median_distance_error.txt'
+            with open(file,'ab') as f:
+                np.savetxt(f, [distance_error_median], fmt='%4f', header='Training_set_median_distance_error_in_pixels:', comments=str(epoch)+'_')
         
             # file = results_dir+'Mean_orientation_error.txt'
             # with open(file,'ab') as f:

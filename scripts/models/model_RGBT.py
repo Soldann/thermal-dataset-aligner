@@ -134,10 +134,6 @@ class CVM_Thermal(nn.Module):
         sat_desc = self.sat_projector(sat_feature) # Don't make it square
         sat_scrs = self.sat_detector(sat_feature)
 
-        print("grd_dsc", grd_desc)
-        print("sat_dsc", sat_desc)
-        print("grd_src", grd_scrs)
-        print("sat_src", sat_scrs)
         # Compute matching points
         # (B, w*h, w*h) -> (B, topk, topk)
         # 1 2 3

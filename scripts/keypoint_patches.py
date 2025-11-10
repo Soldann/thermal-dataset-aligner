@@ -8,23 +8,45 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
     # Resize images to same height
     h1, w1 = img1.shape[:2]
     h2, w2 = img2.shape[:2]
+    
     if h1 != h2:
         scale = h1 / h2
         img2 = cv2.resize(img2, (int(w2 * scale), h1))
 
+    # Convert images to uint8 if they are not
+    if img1.dtype != np.uint8:
+        img1 = (img1 * 255).astype(np.uint8)
+    if img2.dtype != np.uint8:
+        img2 = (img2 * 255).astype(np.uint8)
+
+    num_cols = w1 // patch_size
     # Concatenate images side by side
     vis_img = np.concatenate([img1, img2], axis=1)
     offset = img1.shape[1]
 
-    for (pt1, pt2) in matches:
-        pt1 = tuple(np.round(pt1).astype(int))
-        pt2 = tuple(np.round(pt2).astype(int))
-        pt2_shifted = (pt2[0] + offset, pt2[1])
+    print("img1 shape:", img1.shape, img1.dtype)
+    print("img2 shape:", img2.shape, img2.dtype)
+    print("vis_img dtype:", vis_img.dtype)
+    print("vis_img shape:", vis_img.shape)
+    vis_img = np.ascontiguousarray(vis_img)
+
+    for (patch_1, patch_2) in matches[:10]:
+        patch_1_row = patch_1 // num_cols
+        patch_1_col = patch_1 % num_cols
+        patch_2_row = patch_2 // num_cols
+        patch_2_col = patch_2 % num_cols
+        print("Visualizing match:", patch_1, patch_2)
+        pt1 = tuple((patch_1_col * patch_size + patch_size // 2, patch_1_row * patch_size + patch_size // 2)) # Center of patch 1
+        pt2 = tuple((patch_2_col * patch_size + patch_size // 2, patch_2_row * patch_size + patch_size // 2)) # Center of patch 2
+        pt2_shifted = (pt2[0] + offset, pt2[1]) # To concatenated image coordinates
 
         # Draw patch rectangles
         half = patch_size // 2
-        cv2.rectangle(vis_img, (pt1[0] - half, pt1[1] - half), (pt1[0] + half, pt1[1] + half), color, 1)
-        cv2.rectangle(vis_img, (pt2_shifted[0] - half, pt2_shifted[1] - half), (pt2_shifted[0] + half, pt2_shifted[1] + half), color, 1)
+        print("Drawing rectangles at:", pt1, pt2, pt2_shifted)
+        print("Rectangle corners 1:", (int(pt1[0] - half), int(pt1[1] - half)), (int(pt1[0] + half), int(pt1[1] + half)))
+        print("Rectangle corners 2:", (int(pt2_shifted[0] - half), int(pt2_shifted[1] - half)), (int(pt2_shifted[0] + half), int(pt2_shifted[1] + half)))
+        cv2.rectangle(vis_img, (int(pt1[0] - half), int(pt1[1] - half)), (int(pt1[0] + half), int(pt1[1] + half)), color, 1)
+        cv2.rectangle(vis_img, (int(pt2_shifted[0] - half), int(pt2_shifted[1] - half)), (int(pt2_shifted[0] + half), int(pt2_shifted[1] + half)), color, 1)
 
         # Draw line connecting patches
         cv2.line(vis_img, pt1, pt2_shifted, color, 1)
@@ -55,7 +77,8 @@ def compute_patch_matches(keypoints1, keypoints2, image_shape, patch_size=14):
         if 0 <= p1 < (H // patch_size) * num_cols and 0 <= p2 < (H // patch_size) * num_cols:
             patch_matches.append((p1, p2))
         else:
-            print(f"Keypoint pair ({kp1}, {kp2}) is out of bounds.")
+            # print(f"Keypoint pair ({kp1}, {kp2}) is out of bounds.")
+            continue
 
     # Count occurrences of each patch-pair
     match_counts = Counter(patch_matches)
