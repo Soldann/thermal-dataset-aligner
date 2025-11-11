@@ -7,7 +7,7 @@ parser.add_argument('--machine', type=str, help='scitas or local', default='loca
 parser.add_argument('-l', '--learning_rate', type=float, help='learning rate', default=1e-4)
 parser.add_argument('-b', '--batch_size', type=int, help='batch size', default=4)
 parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', default=1e0)
-parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
+parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=1)
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -120,9 +120,9 @@ CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_heig
                 embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
 
 # Load checkpoint if resuming training
-if epoch_to_resume > 0:
+if epoch_to_resume > 1:
     print("Resuming training from epoch", epoch_to_resume)
-    model_path = f'../checkpoints/{label}/{epoch_to_resume-1}/model.pt'
+    model_path = f'../checkpoints/{label}/{epoch_to_resume}/model.pt'
     CVM_model.load_state_dict(torch.load(model_path))
     
 CVM_model.to(device)
@@ -159,7 +159,7 @@ metric_coord4loss = create_metric_grid(loss_grid_size, (num_virtual_point, num_v
 # -------------------------
 # Training Loop
 # -------------------------
-for epoch in range(epoch_to_resume, 100):
+for epoch in range(epoch_to_resume, 100 + 1):
     print(f'🚀 Epoch {epoch} - Training...')
     
     running_loss = 0.0
