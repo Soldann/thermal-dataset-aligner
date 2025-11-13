@@ -100,11 +100,14 @@ train_dataloader = DataLoader(training_set, batch_size=batch_size, shuffle=True,
 # val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
+# Time stamp for logging
+import time
+time_stamp = time.localtime()
 # Generate label for logging
-label = (f"Robotcar_num_matches_{num_samples_matches}"
+label = (f"RGBT_Scenes_num_matches_{num_samples_matches}"
          f"_beta_{beta}_grd_bev_res_{grd_bev_res}_height_res_{grd_height_res}"
          f"_sat_res_{sat_bev_res}_loss_grid_{loss_grid_size}"
-         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}")
+         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}_time_{time_stamp.tm_mon}{time_stamp.tm_mday}_{time_stamp.tm_hour}{time_stamp.tm_min}")
 
 print(f"Experiment label: {label}")
 
