@@ -6,6 +6,7 @@ import tyro
 from dataclasses import dataclass
 from alignment_methods.contour_aligner import ContourAligner
 from alignment_methods.feature_aligner import FeatureAligner
+from alignment_methods.combined_aligner import CombinedAligner
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -24,6 +25,7 @@ class ImageCategory(Enum):
 class AlignmentMethod(Enum):
     contour = ContourAligner
     feature = FeatureAligner
+    combined = CombinedAligner
 
 @dataclass
 class DatasetAlignerConfigurator:

@@ -4,3 +4,4 @@ tensorboard/
 checkpoints/
 KITTI_SUB/
 results/
+aligned_output/
