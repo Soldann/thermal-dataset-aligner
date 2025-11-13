@@ -30,10 +30,10 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn import functional as F
 import math
+import time
 
-from utils.utils import weighted_procrustes_2d
-from models.loss import loss_bev_space, compute_infonce_loss
 from models.model_RGBT import CVM_Thermal
+from models.model_RGBT_simple import CVM_Thermal_Simple
 from models.modules import DinoExtractor
 
 from keypoint_patches import compute_patch_matches, visualize_patch_matches
@@ -100,17 +100,6 @@ train_dataloader = DataLoader(training_set, batch_size=batch_size, shuffle=True,
 # val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
-# Time stamp for logging
-import time
-time_stamp = time.localtime()
-# Generate label for logging
-label = (f"RGBT_Scenes_num_matches_{num_samples_matches}"
-         f"_beta_{beta}_grd_bev_res_{grd_bev_res}_height_res_{grd_height_res}"
-         f"_sat_res_{sat_bev_res}_loss_grid_{loss_grid_size}"
-         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}_time_{time_stamp.tm_mon}{time_stamp.tm_mday}_{time_stamp.tm_hour}{time_stamp.tm_min}")
-
-print(f"Experiment label: {label}")
-
 # Free unused memory
 # torch.cuda.empty_cache()
 
@@ -118,9 +107,21 @@ print(f"Experiment label: {label}")
 shared_feature_extractor = DinoExtractor().to(device)
 
 # Initialize CVM Model
-CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
-                sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
-                embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
+# CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
+#                 sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
+#                 embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
+CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
+
+
+time_stamp = time.localtime()
+# Generate label for logging
+label = (f"RGBT_Scenes_{CVM_model.__class__.__name__}_num_matches_{num_samples_matches}"
+         f"_beta_{beta}_grd_bev_res_{grd_bev_res}_height_res_{grd_height_res}"
+         f"_sat_res_{sat_bev_res}_loss_grid_{loss_grid_size}"
+         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}_time_{time_stamp.tm_mon}{time_stamp.tm_mday}_{time_stamp.tm_hour}{time_stamp.tm_min}")
+
+print(f"Experiment label: {label}")
+
 
 # Load checkpoint if resuming training
 if epoch_to_resume > 1:
@@ -185,14 +186,14 @@ for epoch in range(epoch_to_resume, 100 + 1):
         img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
 
         # Obtain matching scores and descriptors
-        matching_score, img2_desc, img1_desc, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
+        matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
         # kpts1_pred, kpts2_pred = CVM_model(img1_feature, img2_feature)
 
         # print("matching_score.shape:", matching_score.shape)
         # print("indices shape:", img1_indices_topk.shape, img2_indices_topk.shape)
         # print("matching_score_original.shape:", matching_score_original.shape)
-        # print("img1_indices_topk:", img1_indices_topk)
-        # print("img2_indices_topk:", img2_indices_topk)
+        print("img1_indices_topk:", img1_indices_topk)
+        print("img2_indices_topk:", img2_indices_topk)
         # # print("kpts1_pred.shape:", kpts1_pred.shape)
         # # print("kpts2_pred.shape:", kpts2_pred.shape)
         # print("matching_score_original:", matching_score_original)
@@ -217,14 +218,14 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # # Scatter scores into logits
         # img1_predictions.scatter_(1, img1_indices_topk, diag_scores)
         # img2_predictions.scatter_(1, img2_indices_topk, diag_scores)
-        print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
-        print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
+        # print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[patches_2, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
+        # print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
         img1_loss = F.cross_entropy(
-            matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+            matching_score.squeeze(0)[patches_2, :].squeeze()[:max_keypoints_for_comparison, :],
             patches_1[:max_keypoints_for_comparison].to(device)
             ) 
         img2_loss = F.cross_entropy(
-                matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze()[:max_keypoints_for_comparison, :],
                 patches_2[:max_keypoints_for_comparison].to(device)
             )
         distance_loss = img1_loss + img2_loss
@@ -269,7 +270,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
 
                 img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
         
-                matching_score, img2_desc, img1_desc, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
+                matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
                 # _, num_kpts_sat, num_kpts_grd = matching_score.shape
                 patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
                 max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
@@ -277,11 +278,11 @@ for epoch in range(epoch_to_resume, 100 + 1):
                     visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk.reshape(num_keypoints,).cpu().numpy(), img2_indices_topk.reshape(num_keypoints,).cpu().numpy())), patch_size=14)
                 
                 img1_loss = F.cross_entropy(
-                    matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                    matching_score.squeeze(0)[patches_2, :].squeeze()[:max_keypoints_for_comparison, :],
                     patches_1[:max_keypoints_for_comparison].to(device)
                     ) 
                 img2_loss = F.cross_entropy(
-                        matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :].squeeze()[:max_keypoints_for_comparison, :],
+                        matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze()[:max_keypoints_for_comparison, :],
                         patches_2[:max_keypoints_for_comparison].to(device)
                     )
                 distance_loss = img1_loss + img2_loss
