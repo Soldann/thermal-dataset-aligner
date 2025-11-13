@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import numpy as np
 from utils.utils import desc_l2norm
 from torch.hub import load_state_dict_from_url
-from DINO_modules.dinov2 import vit_small
+from DINO_modules.dinov2 import vit_small, vit_large
 from att_layers.transformer import Transformer_self_att
 from mmcv.ops.multi_scale_deform_attn import MultiScaleDeformableAttention
 
@@ -29,17 +29,17 @@ class DinoExtractor(nn.Module):
     DINOv2 Feature Extractor using a ViT-L/14 backbone.
     """
 
-    def __init__(self, dinov2_weights=None):
+    def __init__(self, dinov2_weights=None, use_smaller_model=False):
         super().__init__()
 
         # Define DINOv2 extractor parameters
-        self.dino_channels = 384
+        self.dino_channels = 384 if use_smaller_model else 1024
         self.dino_downfactor = 14
         self.amp_dtype = torch.float16  # Define float precision
 
         if dinov2_weights is None:
             dinov2_weights = load_state_dict_from_url(
-                "https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth",
+                "https://dl.fbaipublicfiles.com/dinov2/dinov2_vits14/dinov2_vits14_pretrain.pth" if use_smaller_model else "https://dl.fbaipublicfiles.com/dinov2/dinov2_vitl14/dinov2_vitl14_pretrain.pth",
                 map_location="cpu"
             )
 
@@ -51,7 +51,7 @@ class DinoExtractor(nn.Module):
             block_chunks=0,
         )
 
-        self.dinov2_vitl14 = vit_small(**vit_kwargs)
+        self.dinov2_vitl14 = vit_small(**vit_kwargs) if use_smaller_model else vit_large(**vit_kwargs)
         self.dinov2_vitl14.load_state_dict(dinov2_weights)
         self.dinov2_vitl14.requires_grad_(False)
         self.dinov2_vitl14.eval()

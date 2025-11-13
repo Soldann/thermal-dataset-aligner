@@ -46,14 +46,21 @@ class CVM(nn.Module):
         grd_desc = self.grd_projector(grd_feature).flatten(2)
 
         # Interpolate satellite features & compute descriptors & scores
+        print(sat_feature.shape, sat_bev_res)
+        print(grd_feature.shape)
         sat_feature_bev = F.interpolate(sat_feature, (sat_bev_res, sat_bev_res), mode='bilinear', align_corners=False)
         sat_desc = self.sat_projector(sat_feature_bev).flatten(2)
+
+        print("sat_desc:", sat_desc.shape)
+        print("grd_desc:", grd_desc.shape)
         
         # Compute matching points
         matching_score_original = torch.matmul(sat_desc.transpose(1, 2).contiguous(), grd_desc) / self.temperature
         matching_score_original = matching_score_original.masked_fill(
             ~mask.unsqueeze(1), float('-inf')
         )
+
+        print("matching_score_original:", matching_score_original.shape)
 
         # Construct Matching Score Matrix with Dustbin
         b, m, n = matching_score_original.shape

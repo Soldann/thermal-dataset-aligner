@@ -150,7 +150,7 @@ print(f"Experiment label: {label}")
 torch.cuda.empty_cache()
 
 # Initialize shared feature extractor
-shared_feature_extractor = DinoExtractor().to(device)
+shared_feature_extractor = DinoExtractor(use_smaller_model=True).to(device)
 
 # Initialize CVM Model
 CVM_model = CVM(device, embed_dim=384)
@@ -255,6 +255,8 @@ for epoch in range(epoch_to_resume, 100):
  
         sat_indices_sampled = torch.div(sampled_matching_idx, num_kpts_grd, rounding_mode='trunc')
         grd_indices_sampled = sampled_matching_idx % num_kpts_grd
+
+        exit()
 
         # Compute transformation using Weighted Procrustes
         X = metric_coord_sat_B[batch_idx, sat_indices_sampled, :]
