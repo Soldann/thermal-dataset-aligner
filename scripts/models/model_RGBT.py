@@ -179,7 +179,7 @@ class CVM_Thermal(nn.Module):
         # couplings = F.softmax(couplings, dim=1) * F.softmax(couplings, dim=2)
         # matching_score = couplings[:, :-1, :-1]
 
-        return full_matching_score, sat_desc.flatten(2), grd_desc.flatten(2), sat_indices_topk, grd_indices_topk, matching_score_original
+        return full_matching_score, sat_indices_topk, grd_indices_topk, matching_score_original
         # sat_keypoints = self.keypoint_mlp(sat_indices_topk.float())
         # grd_keypoints = self.keypoint_mlp(grd_indices_topk.float())
         # # interpolate to image size

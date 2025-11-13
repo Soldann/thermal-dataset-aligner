@@ -53,7 +53,7 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
 
     # Show image
     plt.figure(figsize=(12, 6))
-    plt.imshow(cv2.cvtColor(vis_img, cv2.COLOR_BGR2RGB))
+    plt.imshow(vis_img)
     plt.axis('off')
     plt.title('Patch Matches')
     plt.show()

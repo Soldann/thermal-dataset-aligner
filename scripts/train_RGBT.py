@@ -29,8 +29,6 @@ from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn import functional as F
-import math
-import time
 
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
@@ -107,27 +105,27 @@ train_dataloader = DataLoader(training_set, batch_size=batch_size, shuffle=True,
 shared_feature_extractor = DinoExtractor().to(device)
 
 # Initialize CVM Model
-# CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
-#                 sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
-#                 embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
-CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
+CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
+                sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
+                embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
+# CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
 
-
-time_stamp = time.localtime()
 # Generate label for logging
 label = (f"RGBT_Scenes_{CVM_model.__class__.__name__}_num_matches_{num_samples_matches}"
          f"_beta_{beta}_grd_bev_res_{grd_bev_res}_height_res_{grd_height_res}"
          f"_sat_res_{sat_bev_res}_loss_grid_{loss_grid_size}"
-         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}_time_{time_stamp.tm_mon}{time_stamp.tm_mday}_{time_stamp.tm_hour}{time_stamp.tm_min}")
+         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}")
 
 print(f"Experiment label: {label}")
 
+global_step = 0
 
 # Load checkpoint if resuming training
 if epoch_to_resume > 1:
     print("Resuming training from epoch", epoch_to_resume)
     model_path = f'../checkpoints/{label}/{epoch_to_resume}/model.pt'
-    CVM_model.load_state_dict(torch.load(model_path))
+    global_step, state_dict = torch.load(model_path)
+    CVM_model.load_state_dict(state_dict)
     
 CVM_model.to(device)
 CVM_model.train()
@@ -144,8 +142,6 @@ optimizer = torch.optim.AdamW(params, lr=learning_rate, betas=(0.9, 0.999))
 writer_dir = f'../tensorboard/{label}/'
 os.makedirs(writer_dir, exist_ok=True)
 writer = SummaryWriter(log_dir=writer_dir)
-
-global_step = 0
 
 # Define metric grids for training
 def create_metric_grid(grid_size, res, batch_size):
@@ -192,8 +188,8 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # print("matching_score.shape:", matching_score.shape)
         # print("indices shape:", img1_indices_topk.shape, img2_indices_topk.shape)
         # print("matching_score_original.shape:", matching_score_original.shape)
-        print("img1_indices_topk:", img1_indices_topk)
-        print("img2_indices_topk:", img2_indices_topk)
+        # print("img1_indices_topk:", img1_indices_topk)
+        # print("img2_indices_topk:", img2_indices_topk)
         # # print("kpts1_pred.shape:", kpts1_pred.shape)
         # # print("kpts2_pred.shape:", kpts2_pred.shape)
         # print("matching_score_original:", matching_score_original)
@@ -244,7 +240,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     print('save checkpoint at '+model_dir)
-    torch.save(CVM_model.cpu().state_dict(), model_dir+'model.pt') # saving model
+    torch.save((global_step, CVM_model.cpu().state_dict()), model_dir+'model.pt') # saving model
     # CVM_model.load_state_dict(torch.load(model_dir+'model.pt'))
     CVM_model.cuda() # moving model to GPU for further training
     
