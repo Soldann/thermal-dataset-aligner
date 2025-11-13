@@ -69,7 +69,7 @@ epsilon = config.getfloat("Constants", "epsilon")
 
 # Load hyperparameters from config
 
-dataset_root = config["KITTI"]["scitas_dataset_root"]
+dataset_root = config["KITTI"]["local_dataset_root"]
 set_seeds(config.getint("RandomSeed", "seed"))
 epsilon = config.getfloat("Constants", "epsilon")
 
@@ -153,11 +153,11 @@ torch.cuda.empty_cache()
 shared_feature_extractor = DinoExtractor().to(device)
 
 # Initialize CVM Model
-CVM_model = CVM(device, embed_dim=1024)
+CVM_model = CVM(device, embed_dim=384)
 
 # Load checkpoint if resuming training
 if epoch_to_resume > 0:
-    model_path = f'/work/vita/zimin/CVM_3D/checkpoints/{label}/{epoch_to_resume-1}/model.pt'
+    model_path = f'/home/landson/sem-project/checkpoints/{label}/{epoch_to_resume-1}/model.pt'
     CVM_model.load_state_dict(torch.load(model_path))
     
 CVM_model.to(device)
