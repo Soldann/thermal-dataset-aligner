@@ -8,6 +8,7 @@ parser.add_argument('-l', '--learning_rate', type=float, help='learning rate', d
 parser.add_argument('-b', '--batch_size', type=int, help='batch size', default=4)
 parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', default=1e0)
 parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=1)
+parser.add_argument('--name', type=str, help='name of the experiment', default='')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -15,6 +16,7 @@ learning_rate = args['learning_rate']
 batch_size = args['batch_size']
 beta = args['beta']
 epoch_to_resume = args['epoch_to_resume']
+experiment_name = args['name']
 
 # Load configuration
 import configparser
@@ -105,16 +107,16 @@ train_dataloader = DataLoader(training_set, batch_size=batch_size, shuffle=True,
 shared_feature_extractor = DinoExtractor().to(device)
 
 # Initialize CVM Model
-CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
-                sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
-                embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
-# CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
+# CVM_model = CVM_Thermal(device, grd_bev_res=grd_bev_res, grd_height_res=grd_height_res, 
+#                 sat_bev_res=sat_bev_res, num_keypoints=num_keypoints, 
+#                 embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
+CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
 
 # Generate label for logging
 label = (f"RGBT_Scenes_{CVM_model.__class__.__name__}_num_matches_{num_samples_matches}"
          f"_beta_{beta}_grd_bev_res_{grd_bev_res}_height_res_{grd_height_res}"
          f"_sat_res_{sat_bev_res}_loss_grid_{loss_grid_size}"
-         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}")
+         f"_h_{int(grid_size_h)}_v_{grid_size_v}_lr_{learning_rate}_name_{experiment_name}")
 
 print(f"Experiment label: {label}")
 
@@ -185,7 +187,8 @@ for epoch in range(epoch_to_resume, 100 + 1):
         matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
         # kpts1_pred, kpts2_pred = CVM_model(img1_feature, img2_feature)
 
-        # print("matching_score.shape:", matching_score.shape)
+        print("matching_score.shape:", matching_score.shape)
+        
         # print("indices shape:", img1_indices_topk.shape, img2_indices_topk.shape)
         # print("matching_score_original.shape:", matching_score_original.shape)
         # print("img1_indices_topk:", img1_indices_topk)
@@ -198,8 +201,8 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # Compute patch matches from gt keypoints
         patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
         max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
-        # print("patches_1 shape:", patches_1.shape)
-        # print("patches_2 shape:", patches_2.shape)
+        print("patches_1 shape:", patches_1.shape, patches_1.dtype)
+        print("patches_2 shape:", patches_2.shape, patches_2.dtype)
         # print("patches_1:", patches_1)
         # print("patches_1 max min:", patches_1.max(), patches_1.min())
         # print("patches_2:", patches_2)
@@ -214,14 +217,16 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # # Scatter scores into logits
         # img1_predictions.scatter_(1, img1_indices_topk, diag_scores)
         # img2_predictions.scatter_(1, img2_indices_topk, diag_scores)
+        print(matching_score.squeeze(0)[patches_2, :].shape)
+        print(matching_score.squeeze(0).transpose(1, 0)[patches_1, :].shape)
         # print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[patches_2, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
         # print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
         img1_loss = F.cross_entropy(
-            matching_score.squeeze(0)[patches_2, :].squeeze()[:max_keypoints_for_comparison, :],
+            matching_score.squeeze(0)[patches_2, :][:max_keypoints_for_comparison, :],
             patches_1[:max_keypoints_for_comparison].to(device)
             ) 
         img2_loss = F.cross_entropy(
-                matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze()[:max_keypoints_for_comparison, :],
+                matching_score.squeeze(0).transpose(1, 0)[patches_1, :][:max_keypoints_for_comparison, :],
                 patches_2[:max_keypoints_for_comparison].to(device)
             )
         distance_loss = img1_loss + img2_loss
@@ -274,11 +279,11 @@ for epoch in range(epoch_to_resume, 100 + 1):
                     visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk.reshape(num_keypoints,).cpu().numpy(), img2_indices_topk.reshape(num_keypoints,).cpu().numpy())), patch_size=14)
                 
                 img1_loss = F.cross_entropy(
-                    matching_score.squeeze(0)[patches_2, :].squeeze()[:max_keypoints_for_comparison, :],
+                    matching_score.squeeze(0)[patches_2, :][:max_keypoints_for_comparison, :],
                     patches_1[:max_keypoints_for_comparison].to(device)
                     ) 
                 img2_loss = F.cross_entropy(
-                        matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze()[:max_keypoints_for_comparison, :],
+                        matching_score.squeeze(0).transpose(1, 0)[patches_1, :][:max_keypoints_for_comparison, :],
                         patches_2[:max_keypoints_for_comparison].to(device)
                     )
                 distance_loss = img1_loss + img2_loss

@@ -52,7 +52,11 @@ class ContourAligner(DatasetAligner):
         return np.array([tx, ty])
 
     def align_images(self, rgb_image, thermal_image):
-        # Implement contour-based alignment logic here
+        # Ensure images are in uint8 format for Canny
+        if rgb_image.dtype != np.uint8:
+            rgb_image = (rgb_image * 255).astype(np.uint8)
+        if thermal_image.dtype != np.uint8:
+            thermal_image = (thermal_image * 255).astype(np.uint8)
 
         rgb_edges = cv2.Canny(rgb_image, 1, 200)
         thermal_edges = cv2.Canny(thermal_image, 30, 200)
