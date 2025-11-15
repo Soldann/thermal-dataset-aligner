@@ -61,7 +61,7 @@ class RGBT_Scenes_Dataset(Dataset):
             for j in range(i+1, min(i + window_size, len(self.thermal_images))):
                 self.image_pairs.append((i, j))
 
-        # self.image_pairs = self.image_pairs[:10] # For testing, limit to first 10 pairs
+        self.image_pairs = self.image_pairs[:10] # For testing, limit to first 10 pairs
         self.image1_list = []
         self.image2_list = []
         self.kpts1_list = []
@@ -99,21 +99,18 @@ class RGBT_Scenes_Dataset(Dataset):
             self.conf_list = [conf.cpu() for conf in conf_list]
 
     def collate_fn(self, batch):
-        images1, images2, kpts1, kpts2, conf = zip(*batch)
-
-        kpts1_length = [seq.size(0) for seq in kpts1]
-        kpts2_length = [seq.size(0) for seq in kpts2]
-
+        images1, images2, kpts1, kpts2, conf, kpts1_length, kpts2_length = zip(*batch)
 
         padded_kpts1 = pad_sequence(kpts1, batch_first=True)
         padded_kpts2 = pad_sequence(kpts2, batch_first=True)
+
         return images1, images2, padded_kpts1, padded_kpts2, conf, kpts1_length, kpts2_length
 
     def __len__(self):
         return len(self.image1_list)
 
     def __getitem__(self, idx):
-        return self.image1_list[idx], self.image2_list[idx], self.kpts1_list[idx], self.kpts2_list[idx], self.conf_list[idx]
+        return self.image1_list[idx], self.image2_list[idx], self.kpts1_list[idx], self.kpts2_list[idx], self.conf_list[idx], self.kpts1_list[idx].shape[0], self.kpts2_list[idx].shape[0]
 
 if __name__ == "__main__":
     data = RGBT_Scenes_Dataset(

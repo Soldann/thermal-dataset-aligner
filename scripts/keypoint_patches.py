@@ -59,6 +59,16 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
     plt.show()
 
 def compute_patch_matches(keypoints1, keypoints2, image_shape, patch_size=14):
+    """
+    Given a set of keypoint correspondences between two images, compute the patch-level matches.
+    Each image is divided into patches of size patch_size x patch_size, and keypoints are
+    assigned to patches based on their coordinates.
+    :param keypoints1: Nx2 tensor of keypoints in image 1
+    :param keypoints2: Nx2 tensor of keypoints in image 2
+    :param image_shape: Tuple (H, W) of the image dimensions
+    :param patch_size: Size of each patch (assumed square)
+    :return: Two lists of patch indices corresponding to matches: patch1, patch2
+    """
     H, W = image_shape
     num_cols = W // patch_size
 
@@ -91,3 +101,60 @@ def compute_patch_matches(keypoints1, keypoints2, image_shape, patch_size=14):
     patch2 = torch.tensor([p[0][1] for p in sorted_matches])
 
     return patch1, patch2  # List of (patch1, patch2)
+
+
+def batched_compute_patch_matches(batch_kpts1, batch_kpts2, kpts1_length, kpts2_length, image_shape, patch_size=14):
+    """
+    Fully vectorized batched version using scatter_add.
+    Keeps all nonzero matches per batch, pads to max length, returns mask.
+    :param batch_kpts1: BxNx2 tensor of keypoints in image 1
+    :param batch_kpts2: BxNx2 tensor of keypoints in image 2
+    :param image_shape: Tuple (H, W) of the image dimensions
+    :param patch_size: Size of each patch (assumed square)
+    :return: patch1, patch2, mask
+             patch1: [B, max_matches] tensor of patch indices in image 1
+             patch2: [B, max_matches] tensor of patch indices in image 2
+             mask:   [B, max_matches] boolean tensor
+    """
+    B, N, _ = batch_kpts1.shape
+    H, W = image_shape
+    num_cols = W // patch_size
+    num_rows = H // patch_size
+    max_index = num_rows * num_cols
+
+    # Compute patch indices
+    p1 = (batch_kpts1[:,:,1] // patch_size).long() * num_cols + (batch_kpts1[:,:,0] // patch_size).long()
+    p2 = (batch_kpts2[:,:,1] // patch_size).long() * num_cols + (batch_kpts2[:,:,0] // patch_size).long()
+
+    # Mask out-of-bounds
+    mask_valid = (p1 >= 0) & (p1 < max_index) & (p2 >= 0) & (p2 < max_index) & (torch.arange(N).unsqueeze(0).to(kpts1_length.device) < kpts1_length.unsqueeze(1)) & (torch.arange(N).unsqueeze(0).to(kpts2_length.device) < kpts2_length.unsqueeze(1))
+
+    # Encode pairs into single indices
+    pair_index = torch.where(
+        mask_valid,
+        (p1 * max_index + p2).long(),   # valid pairs
+        torch.full_like(p1, max_index*max_index)   # invalid pairs → sentinel
+    )
+
+    # Scatter counts into [B, max_index*max_index]
+    counts = torch.zeros(B, max_index*max_index + 1, dtype=torch.long, device=pair_index.device)
+    counts.scatter_add_(1, pair_index, torch.ones_like(pair_index, dtype=torch.long))
+    counts = counts[:, :max_index*max_index]  # discard sentinel column
+
+    # Sort by frequency per batch
+    sorted_idx = torch.argsort(counts, dim=1, descending=True, stable=True)
+
+    # Gather counts in sorted order
+    sorted_counts = counts.gather(1, sorted_idx)
+
+    # Mask: valid if count > 0
+    mask = sorted_counts > 0
+
+    # Decode back into (p1,p2)
+    patch1 = sorted_idx // max_index
+    patch2 = sorted_idx % max_index
+
+    print("patch1 shape:", patch1.shape, patch1.dtype)
+
+    # Pad dynamically: just keep full sorted list, mask tells you which are valid
+    return patch1, patch2, mask
