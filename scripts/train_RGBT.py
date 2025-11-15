@@ -219,17 +219,29 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # img2_predictions.scatter_(1, img2_indices_topk, diag_scores)
         print(matching_score.squeeze(0)[patches_2.squeeze(0), :].shape)
         print(matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :].shape)
+        print("img1_indices_topk.shape:", img1_indices_topk.shape)
+        print("img2_indices_topk.shape:", img2_indices_topk.shape)
+        print("matching_score_after_indexes shape:", matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :].shape)
+        print("matching_score_after_indexes shape:", matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :].shape)
         # print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[patches_2, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
         # print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
         img1_loss = F.cross_entropy(
             matching_score.squeeze(0)[patches_2.squeeze(0), :][:max_keypoints_for_comparison, :],
             patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
-            ) 
+            )
+        img1_topk_loss = F.cross_entropy(
+            matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
+            patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
+        )
         img2_loss = F.cross_entropy(
                 matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :][:max_keypoints_for_comparison, :],
                 patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
             )
-        distance_loss = img1_loss + img2_loss
+        img2_topk_loss = F.cross_entropy(
+            matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
+            patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
+        )
+        distance_loss = img1_loss + img2_loss + img1_topk_loss + img2_topk_loss
         print("distance_loss:", distance_loss.item())
         # Backpropagation
         optimizer.zero_grad()
@@ -282,11 +294,19 @@ for epoch in range(epoch_to_resume, 100 + 1):
                     matching_score.squeeze(0)[patches_2.squeeze(0), :][:max_keypoints_for_comparison, :],
                     patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
                     ) 
+                img1_topk_loss = F.cross_entropy(
+                    matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
+                    patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
+                )
                 img2_loss = F.cross_entropy(
                         matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :][:max_keypoints_for_comparison, :],
                         patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                     )
-                distance_loss = img1_loss + img2_loss
+                img2_topk_loss = F.cross_entropy(
+                    matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
+                    patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
+                )
+                distance_loss = img1_loss + img2_loss + img1_topk_loss + img2_topk_loss
                 distance_error.append(distance_loss.item())       
             
             distance_error_mean = np.mean(distance_error)    
