@@ -168,7 +168,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
     CVM_model.train()
 
     for i, data in enumerate(train_dataloader, 0):
-        img1, img2, kpts1, kpts2, conf = data
+        img1, img2, kpts1, kpts2, conf, patches_1, patches_2 = data
         print("Batch", i, "image shapes:", img1.shape, img2.shape)
         # grd, sat, tgt, Rgt = data
         # B, _, sat_size, _ = sat.shape
@@ -178,7 +178,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # tgt = (tgt / sat_size) * grid_size_h
 
         # Move data to device
-        img1, img2, kpts1, kpts2, conf = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device), conf.to(device)
+        img1, img2, kpts1, kpts2, conf, patches_1, patches_2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device), conf.to(device), patches_1.to(device), patches_2.to(device)
 
         # Forward pass through the feature extractor
         img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
@@ -199,7 +199,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # print("matching_score:", matching_score)
 
         # Compute patch matches from gt keypoints
-        patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
+        # patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
         max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
         print("patches_1 shape:", patches_1.shape, patches_1.dtype)
         print("patches_2 shape:", patches_2.shape, patches_2.dtype)
@@ -217,17 +217,17 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # # Scatter scores into logits
         # img1_predictions.scatter_(1, img1_indices_topk, diag_scores)
         # img2_predictions.scatter_(1, img2_indices_topk, diag_scores)
-        print(matching_score.squeeze(0)[patches_2, :].shape)
-        print(matching_score.squeeze(0).transpose(1, 0)[patches_1, :].shape)
+        print(matching_score.squeeze(0)[patches_2.squeeze(0), :].shape)
+        print(matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :].shape)
         # print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[patches_2, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
         # print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
         img1_loss = F.cross_entropy(
-            matching_score.squeeze(0)[patches_2, :][:max_keypoints_for_comparison, :],
-            patches_1[:max_keypoints_for_comparison].to(device)
+            matching_score.squeeze(0)[patches_2.squeeze(0), :][:max_keypoints_for_comparison, :],
+            patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
             ) 
         img2_loss = F.cross_entropy(
-                matching_score.squeeze(0).transpose(1, 0)[patches_1, :][:max_keypoints_for_comparison, :],
-                patches_2[:max_keypoints_for_comparison].to(device)
+                matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :][:max_keypoints_for_comparison, :],
+                patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
             )
         distance_loss = img1_loss + img2_loss
         print("distance_loss:", distance_loss.item())
@@ -265,26 +265,26 @@ for epoch in range(epoch_to_resume, 100 + 1):
             visualization_index = torch.randint(0, len(train_dataloader.dataset), (1,)).item()
             # visualization_index = 0
             for i, data in enumerate(train_dataloader, 0):
-                img1, img2, kpts1, kpts2, conf = data
+                img1, img2, kpts1, kpts2, conf, patches_1, patches_2 = data
 
-                img1, img2, kpts1, kpts2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device)
+                img1, img2, kpts1, kpts2, patches_1, patches_2 = img1.to(device), img2.to(device), kpts1.to(device), kpts2.to(device), patches_1.to(device), patches_2.to(device)
 
                 img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
         
                 matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
                 # _, num_kpts_sat, num_kpts_grd = matching_score.shape
-                patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
+                # patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
                 max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
                 if i == visualization_index:
                     visualize_patch_matches(img1.squeeze(0).permute(1,2,0).cpu().numpy(), img2.squeeze(0).permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk.reshape(num_keypoints,).cpu().numpy(), img2_indices_topk.reshape(num_keypoints,).cpu().numpy())), patch_size=14)
                 
                 img1_loss = F.cross_entropy(
-                    matching_score.squeeze(0)[patches_2, :][:max_keypoints_for_comparison, :],
-                    patches_1[:max_keypoints_for_comparison].to(device)
+                    matching_score.squeeze(0)[patches_2.squeeze(0), :][:max_keypoints_for_comparison, :],
+                    patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
                     ) 
                 img2_loss = F.cross_entropy(
-                        matching_score.squeeze(0).transpose(1, 0)[patches_1, :][:max_keypoints_for_comparison, :],
-                        patches_2[:max_keypoints_for_comparison].to(device)
+                        matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :][:max_keypoints_for_comparison, :],
+                        patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                     )
                 distance_loss = img1_loss + img2_loss
                 distance_error.append(distance_loss.item())       

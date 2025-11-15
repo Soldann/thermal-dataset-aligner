@@ -28,7 +28,7 @@ from alignment_methods.combined_aligner import CombinedAligner
 from alignment_methods.dataset_aligner_base import DatasetAligner
 from feature_matchers.base_feature_matcher import FeatureMatcher
 from feature_matchers.vggt_feature_matcher import VGGTFeatureMatcher
-
+from keypoint_patches import compute_patch_matches
 import glob
 
 # Set deterministic behavior for reproducibility
@@ -67,6 +67,8 @@ class RGBT_Scenes_Dataset(Dataset):
         self.kpts1_list = []
         self.kpts2_list = []
         self.conf_list = []
+        self.patches1_list = []
+        self.patches2_list = []
         (self.root / self.split / 'keypoint_cache').mkdir(parents=True, exist_ok=True)
         if low_memory_mode:
             for image1, image2 in self.image_pairs:
@@ -75,10 +77,16 @@ class RGBT_Scenes_Dataset(Dataset):
                     if self.data_correspondencer is None:
                         self.data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), CombinedAligner())
                     img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[image1], self.rgb_images[image2]], [self.thermal_images[image1], self.thermal_images[image2]], [ImageModality.thermal]*2)
-                    torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list), self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                    patches_1, patches_2 = [], []
+                    for img1, kpts1, kpts2 in zip(img1_list, kpts1_list, kpts2_list):
+                        p1, p2 = compute_patch_matches(kpts1, kpts2, img1.shape[1:], patch_size=14) # img1 shape is (C, H, W)
+                        patches_1.append(p1)
+                        patches_2.append(p2)
+                    
+                    torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2), self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
                 else:
                     print("loading cached keypoints for image pair:", image1, image2)
-                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list = torch.load(self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
                 
                 if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
                     print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
@@ -90,6 +98,8 @@ class RGBT_Scenes_Dataset(Dataset):
                 self.kpts1_list.extend([kpts1.cpu() for kpts1 in kpts1_list])
                 self.kpts2_list.extend([kpts2.cpu() for kpts2 in kpts2_list])
                 self.conf_list.extend([conf.cpu() for conf in conf_list])
+                self.patches1_list.extend([p1.cpu() for p1 in patches_1])
+                self.patches2_list.extend([p2.cpu() for p2 in patches_2])
         else:
             img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pairs)
             self.image1_list = [img1.cpu() for img1 in img1_list]
@@ -97,6 +107,13 @@ class RGBT_Scenes_Dataset(Dataset):
             self.kpts1_list = [kpts1.cpu() for kpts1 in kpts1_list]
             self.kpts2_list = [kpts2.cpu() for kpts2 in kpts2_list]
             self.conf_list = [conf.cpu() for conf in conf_list]
+            patches_1, patches_2 = [], []
+            for img1, kpts1, kpts2 in zip(img1_list, kpts1_list, kpts2_list):
+                p1, p2 = compute_patch_matches(kpts1, kpts2, img1.shape[2:], patch_size=14)
+                patches_1.append(p1)
+                patches_2.append(p2)
+            self.patches1_list.extend([p1.cpu() for p1 in patches_1])
+            self.patches2_list.extend([p2.cpu() for p2 in patches_2])
 
     def collate_fn(self, batch):
         images1, images2, kpts1, kpts2, conf = zip(*batch)
@@ -113,7 +130,7 @@ class RGBT_Scenes_Dataset(Dataset):
         return len(self.image1_list)
 
     def __getitem__(self, idx):
-        return self.image1_list[idx], self.image2_list[idx], self.kpts1_list[idx], self.kpts2_list[idx], self.conf_list[idx]
+        return self.image1_list[idx], self.image2_list[idx], self.kpts1_list[idx], self.kpts2_list[idx], self.conf_list[idx], self.patches1_list[idx], self.patches2_list[idx]
 
 if __name__ == "__main__":
     data = RGBT_Scenes_Dataset(
