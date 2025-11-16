@@ -116,21 +116,26 @@ class RGBT_Scenes_Dataset(Dataset):
             self.patches2_list.extend([p2.cpu() for p2 in patches_2])
 
     def collate_fn(self, batch):
-        images1, images2, kpts1, kpts2, conf = zip(*batch)
+        images1, images2, conf, patches1, patches2, patches1_length, patches2_length = zip(*batch)
 
-        kpts1_length = [seq.size(0) for seq in kpts1]
-        kpts2_length = [seq.size(0) for seq in kpts2]
+        # Stack images into batch tensors
+        images1 = torch.stack(images1, dim=0)
+        images2 = torch.stack(images2, dim=0)
+        conf = torch.stack(conf, dim=0)
 
+        padded_patches1 = pad_sequence(patches1, batch_first=True)
+        padded_patches2 = pad_sequence(patches2, batch_first=True)
 
-        padded_kpts1 = pad_sequence(kpts1, batch_first=True)
-        padded_kpts2 = pad_sequence(kpts2, batch_first=True)
-        return images1, images2, padded_kpts1, padded_kpts2, conf, kpts1_length, kpts2_length
+        patches1_length = torch.tensor(patches1_length)
+        patches2_length = torch.tensor(patches2_length)
+
+        return images1, images2, conf, padded_patches1, padded_patches2, patches1_length, patches2_length
 
     def __len__(self):
         return len(self.image1_list)
 
     def __getitem__(self, idx):
-        return self.image1_list[idx], self.image2_list[idx], self.kpts1_list[idx], self.kpts2_list[idx], self.conf_list[idx], self.patches1_list[idx], self.patches2_list[idx]
+        return self.image1_list[idx], self.image2_list[idx], self.conf_list[idx], self.patches1_list[idx], self.patches2_list[idx], self.patches1_list[idx].shape[0], self.patches2_list[idx].shape[0]
 
 if __name__ == "__main__":
     data = RGBT_Scenes_Dataset(
