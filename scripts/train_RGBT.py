@@ -7,7 +7,7 @@ parser.add_argument('--machine', type=str, help='scitas or local', default='loca
 parser.add_argument('-l', '--learning_rate', type=float, help='learning rate', default=1e-4)
 parser.add_argument('-b', '--batch_size', type=int, help='batch size', default=4)
 parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', default=1e0)
-parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=1)
+parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
 
 args = vars(parser.parse_args())
@@ -26,7 +26,7 @@ config.read("./config.ini")
 import torch
 import numpy as np
 import random
-from dataloaders.dataloader_RGBT_Scenes import RGBT_Scenes_Dataset
+from dataloaders.dataloader_RGBT_Scenes import RGBT_Scenes_Dataset, random_split
 from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
@@ -82,23 +82,25 @@ num_virtual_point = config.getint("Loss", "num_virtual_point")
 
 # Load dataset
 print(dataset_root)
-training_set = RGBT_Scenes_Dataset(
+full_dataset = RGBT_Scenes_Dataset(
     root=dataset_root, split='train', low_memory_mode=True
 )
 
-# val_set = RGBT_Scenes_Dataset(
-#     root=dataset_root, split='val',
-# )
-
-# test_set = RGBT_Scenes_Dataset(
-#     root=dataset_root, split='test',
-# )
-
 # Create DataLoaders
-print(len(training_set), 'training samples found.')
-train_dataloader = DataLoader(training_set, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=training_set.collate_fn)
-# val_dataloader = DataLoader(val_set, batch_size=batch_size, shuffle=False, num_workers=4)
+print(len(full_dataset), 'training samples found.')
+num_training_samples = int(len(full_dataset)*0.95)
+train_data, val_data = random_split(full_dataset, [num_training_samples, len(full_dataset) - num_training_samples])
+
+train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=train_data.dataset.collate_fn)
+val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_data.dataset.collate_fn)
+# val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
+
+# Print the indices of each split if desired for reproducibility
+# with open('train_indices.txt', 'w') as f:
+#     f.write('\n'.join(map(str, train_data.indices)))
+# with open('val_indices.txt', 'w') as f:
+#     f.write('\n'.join(map(str, val_data.indices)))
 
 # Free unused memory
 # torch.cuda.empty_cache()
@@ -123,7 +125,7 @@ print(f"Experiment label: {label}")
 global_step = 0
 
 # Load checkpoint if resuming training
-if epoch_to_resume > 1:
+if epoch_to_resume > 0:
     print("Resuming training from epoch", epoch_to_resume)
     model_path = f'../checkpoints/{label}/{epoch_to_resume}/model.pt'
     global_step, state_dict = torch.load(model_path)
@@ -178,7 +180,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
         # tgt = (tgt / sat_size) * grid_size_h
 
         # Move data to device
-        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), conf.to(device), patches_1.to(device), patches_2.to(device), patches_1_len.to(device), patches_2_len.to(device)
+        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), conf.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device)
 
         # Forward pass through the feature extractor
         img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
@@ -289,12 +291,12 @@ for epoch in range(epoch_to_resume, 100 + 1):
             CVM_model.eval()
             distance_error = []
 
-            visualization_index = torch.randint(0, len(train_dataloader), (1,)).item()
+            visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
             # visualization_index = 0
-            for i, data in enumerate(train_dataloader, 0):
+            for i, data in enumerate(val_dataloader, 0):
                 img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
 
-                img1, img2, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), patches_1.to(device), patches_2.to(device), patches_1_len.to(device), patches_2_len.to(device)
+                img1, img2, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device)
 
                 img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
         

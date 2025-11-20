@@ -4,7 +4,7 @@ import numpy as np
 import csv
 import torch
 import json
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from torch.nn.utils.rnn import pad_sequence
 from torchvision import transforms
 import cv2 
@@ -47,10 +47,10 @@ class RGBT_Scenes_Dataset(Dataset):
         self.split = split
         self.data_correspondencer = None
 
-        # self.thermal_images = glob.glob(os.path.join(self.root, 'thermal', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'thermal', 'test', '*.jpg'))
-        self.thermal_images = glob.glob(str(self.root / 'thermal' / 'test' / '*.jpg'))
-        self.rgb_images = glob.glob(str(self.root / 'rgb' / 'test' / '*.jpg'))
-        # self.rgb_images = glob.glob(os.path.join(self.root, 'rgb', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'rgb', 'test', '*.jpg'))
+        self.thermal_images = glob.glob(os.path.join(self.root, 'thermal', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'thermal', 'test', '*.jpg'))
+        # self.thermal_images = glob.glob(str(self.root / 'thermal' / 'test' / '*.jpg'))
+        # self.rgb_images = glob.glob(str(self.root / 'rgb' / 'test' / '*.jpg'))
+        self.rgb_images = glob.glob(os.path.join(self.root, 'rgb', 'train', '*.jpg')) + glob.glob(os.path.join(self.root, 'rgb', 'test', '*.jpg'))
         self.thermal_images.sort()
         self.rgb_images.sort()
 
@@ -90,30 +90,22 @@ class RGBT_Scenes_Dataset(Dataset):
                 
                 if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
                     print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
+                    self.image_pairs.remove((image1, image2))
                     continue
                     # raise ValueError("No keypoints found.")
-                
-                self.image1_list.extend([img1.cpu() for img1 in img1_list]) # Make sure on cpu
-                self.image2_list.extend([img2.cpu() for img2 in img2_list])
-                self.kpts1_list.extend([kpts1.cpu() for kpts1 in kpts1_list])
-                self.kpts2_list.extend([kpts2.cpu() for kpts2 in kpts2_list])
-                self.conf_list.extend([conf.cpu() for conf in conf_list])
-                self.patches1_list.extend([p1.cpu() for p1 in patches_1])
-                self.patches2_list.extend([p2.cpu() for p2 in patches_2])
+
         else:
             img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pairs)
-            self.image1_list = [img1.cpu() for img1 in img1_list]
-            self.image2_list = [img2.cpu() for img2 in img2_list]
-            self.kpts1_list = [kpts1.cpu() for kpts1 in kpts1_list]
-            self.kpts2_list = [kpts2.cpu() for kpts2 in kpts2_list]
-            self.conf_list = [conf.cpu() for conf in conf_list]
+            
             patches_1, patches_2 = [], []
             for img1, kpts1, kpts2 in zip(img1_list, kpts1_list, kpts2_list):
                 p1, p2 = compute_patch_matches(kpts1, kpts2, img1.shape[2:], patch_size=14)
                 patches_1.append(p1)
                 patches_2.append(p2)
-            self.patches1_list.extend([p1.cpu() for p1 in patches_1])
-            self.patches2_list.extend([p2.cpu() for p2 in patches_2])
+
+            for i, (image1, image2) in enumerate(self.image_pairs):
+                print("saving precomputed keypoints for image pair:", image1, image2)
+                torch.save((img1_list[i], img2_list[i], kpts1_list[i], kpts2_list[i], conf_list[i], patches_1[i], patches_2[i]), self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
 
     def collate_fn(self, batch):
         images1, images2, conf, patches1, patches2, patches1_length, patches2_length = zip(*batch)
@@ -132,10 +124,13 @@ class RGBT_Scenes_Dataset(Dataset):
         return images1, images2, conf, padded_patches1, padded_patches2, patches1_length, patches2_length
 
     def __len__(self):
-        return len(self.image1_list)
+        return len(self.image_pairs)
 
     def __getitem__(self, idx):
-        return self.image1_list[idx], self.image2_list[idx], self.conf_list[idx], self.patches1_list[idx], self.patches2_list[idx], self.patches1_list[idx].shape[0], self.patches2_list[idx].shape[0]
+        image1, image2 = self.image_pairs[idx]
+        img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.root / self.split / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
+
+        return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0]
 
 if __name__ == "__main__":
     data = RGBT_Scenes_Dataset(
