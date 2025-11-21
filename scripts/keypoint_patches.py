@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 import torch
 
-def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0)):
+def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0), patches_to_draw=10):
     # Resize images to same height
     h1, w1 = img1.shape[:2]
     h2, w2 = img2.shape[:2]
@@ -30,7 +30,7 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
     print("vis_img shape:", vis_img.shape)
     vis_img = np.ascontiguousarray(vis_img)
 
-    for (patch_1, patch_2) in matches[:10]:
+    for (patch_1, patch_2) in matches[:patches_to_draw]:
         patch_1_row = patch_1 // num_cols
         patch_1_col = patch_1 % num_cols
         patch_2_row = patch_2 // num_cols

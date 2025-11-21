@@ -97,10 +97,10 @@ val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
 # Print the indices of each split if desired for reproducibility
-# with open('train_indices.txt', 'w') as f:
-#     f.write('\n'.join(map(str, train_data.indices)))
-# with open('val_indices.txt', 'w') as f:
-#     f.write('\n'.join(map(str, val_data.indices)))
+with open('train_indices.txt', 'w') as f:
+    f.write('\n'.join(map(str, train_data.indices)))
+with open('val_indices.txt', 'w') as f:
+    f.write('\n'.join(map(str, val_data.indices)))
 
 # Free unused memory
 # torch.cuda.empty_cache()
@@ -147,23 +147,10 @@ writer_dir = f'../tensorboard/{label}/'
 os.makedirs(writer_dir, exist_ok=True)
 writer = SummaryWriter(log_dir=writer_dir)
 
-# Define metric grids for training
-def create_metric_grid(grid_size, res, batch_size):
-    x, y = np.linspace(-grid_size/2, grid_size/2, res[0]), np.linspace(-grid_size/2, grid_size/2, res[1])
-    metric_x, metric_y = np.meshgrid(x, y, indexing='ij')
-    metric_x, metric_y = torch.tensor(metric_x).flatten().unsqueeze(0).unsqueeze(-1), torch.tensor(metric_y).flatten().unsqueeze(0).unsqueeze(-1)
-    metric_coord = torch.cat((metric_x, metric_y), -1).to(device).float()
-    return metric_coord.repeat(batch_size, 1, 1)
-
-metric_coord_grd_B = create_metric_grid(grid_size_h, (int(np.floor(grd_bev_res/2))+1, grd_bev_res), batch_size)
-metric_coord_sat_B = create_metric_grid(grid_size_h, (sat_bev_res, sat_bev_res), batch_size)
-metric_coord4loss = create_metric_grid(loss_grid_size, (num_virtual_point, num_virtual_point), 1)
-
-
 # -------------------------
 # Training Loop
 # -------------------------
-for epoch in range(epoch_to_resume, 100 + 1):
+for epoch in range(epoch_to_resume + 1, 100 + 1):
     print(f'🚀 Epoch {epoch} - Training...')
     
     running_loss = 0.0
@@ -320,7 +307,7 @@ for epoch in range(epoch_to_resume, 100 + 1):
                 
                 if i == visualization_index:
                     item_to_pick = torch.randint(0, B, (1,)).item()
-                    visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14)
+                    # visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14)
 
                 img1_loss = F.cross_entropy(
                     scores_img1[max_keypoints_mask],
