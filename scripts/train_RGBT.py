@@ -244,15 +244,15 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
             # matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
             # patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
         # )
-        distance_loss = img1_loss + img2_loss #+ img1_topk_loss + img2_topk_loss
-        print("distance_loss:", distance_loss.item())
+        loss = img1_loss + img2_loss #+ img1_topk_loss + img2_topk_loss
+        print("loss:", loss.item())
         # Backpropagation
         optimizer.zero_grad()
-        distance_loss.backward()
+        loss.backward()
         optimizer.step()
 
         # Log training loss
-        writer.add_scalar("loss/distance", distance_loss.item(), global_step)
+        writer.add_scalar("loss/train_error", loss.item(), global_step)
         global_step += 1
 
 
@@ -267,7 +267,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
     # -------------------------
     # Validation 
     # -------------------------
-    if epoch % 10 == 0:
+    if epoch % 5 == 0:
         print(f'📊 Epoch {epoch} - Evaluating on validation set...')
         results_dir = '../results/'+label+'/'
         if not os.path.exists(results_dir):
@@ -275,7 +275,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
 
         with torch.no_grad():
             CVM_model.eval()
-            distance_error = []
+            val_error = []
 
             visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
             # visualization_index = 0
@@ -324,112 +324,17 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 #     matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
                 #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                 # )
-                distance_loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
-                distance_error.append(distance_loss.item())       
+                loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
+                val_error.append(loss.item())       
+                writer.add_scalar("loss/val_error", loss.item(), global_step)
             
-            distance_error_mean = np.mean(distance_error)    
-            distance_error_median = np.median(distance_error) 
+            val_error_mean = np.mean(val_error)    
+            val_error_median = np.median(val_error) 
         
-            print(f'📉 Mean Distance Error: {distance_error_mean:.3f}')
-            print(f'📉 Median Distance Error: {distance_error_median:.3f}')
-            
-            file = results_dir+'Mean_distance_error.txt'
-            with open(file,'ab') as f:
-                np.savetxt(f, [distance_error_mean], fmt='%4f', header='Training_set_mean_distance_error_in_pixels:', comments=str(epoch)+'_')
-        
-            file = results_dir+'Median_distance_error.txt'
-            with open(file,'ab') as f:
-                np.savetxt(f, [distance_error_median], fmt='%4f', header='Training_set_median_distance_error_in_pixels:', comments=str(epoch)+'_')
-        
-            # file = results_dir+'Mean_orientation_error.txt'
-            # with open(file,'ab') as f:
-            #     np.savetxt(f, [yaw_error_mean], fmt='%4f', header='Training_set_mean_yaw_error:', comments=str(epoch)+'_')
-        
-            # file = results_dir+'Median_orientation_error.txt'
-            # with open(file,'ab') as f:
-            #     np.savetxt(f, [yaw_error_median], fmt='%4f', header='Training_set_median_yaw_error:', comments=str(epoch)+'_')
+            print(f'📉 Mean Distance Error: {val_error_mean:.3f}')
+            print(f'📉 Median Distance Error: {val_error_median:.3f}')
 
-    # print(f'📊 Epoch {epoch} - Evaluating on validation set...')
-    # with torch.no_grad():
-    #     CVM_model.eval()
-    #     translation_error, yaw_error = [], []
-
-    #     for i, data in enumerate(train_dataloader, 0):
-    #         grd, sat, tgt, Rgt = data
-    #         B, _, sat_size, _ = sat.shape
-
-    #         grd, sat, tgt, Rgt = grd.to(device), sat.to(device), tgt.to(device), Rgt.to(device)
-
-    #         grd_feature, sat_feature = shared_feature_extractor(grd), shared_feature_extractor(sat)
-    
-    #         matching_score, sat_desc, grd_desc, sat_indices_topk, grd_indices_topk, matching_score_original = CVM_model(grd_feature, sat_feature)
-    #         _, num_kpts_sat, num_kpts_grd = matching_score.shape
-
-    #         # Sample validation matches
-    #         matches_row = matching_score.flatten(1)
-    #         batch_idx = torch.arange(B).view(B, 1).repeat(1, num_samples_matches).reshape(B, num_samples_matches)
-    #         sampled_matching_idx = torch.multinomial(matches_row, num_samples_matches)
-
-    #         sampled_matching_row = torch.div(sampled_matching_idx, num_kpts_grd, rounding_mode='trunc')
-    #         sampled_matching_col = sampled_matching_idx % num_kpts_grd
-
-    #         sat_indices_sampled = torch.gather(sat_indices_topk.squeeze(1), 1, sampled_matching_row)
-    #         grd_indices_sampled = torch.gather(grd_indices_topk.squeeze(1), 1, sampled_matching_col)
-
-    #         X, Y, weights = metric_coord_sat_B[batch_idx, sat_indices_sampled, :], metric_coord_grd_B[batch_idx, grd_indices_sampled, :], matches_row[batch_idx, sampled_matching_idx]
-    #         R, t, ok_rank = weighted_procrustes_2d(X, Y, use_weights=True, use_mask=True, w=weights)
-
-    #         if t is None:
-    #             print('⚠️ Skipping batch: Singular transformation matrix')
-    #             continue
-            
-    #         # Compute translation error
-    #         t = (t / grid_size_h) * sat_size
-    #         translation_error.extend(torch.norm(t - tgt, dim=-1).cpu().numpy())
-
-    #         # Compute yaw error
-    #         Rgt_np, R_np = Rgt.cpu().numpy(), R.cpu().numpy()
-    #         for b in range(B):
-    #             cos = R_np[b,0,0]
-    #             sin = R_np[b,1,0]
-    #             yaw = np.degrees( np.arctan2(sin, cos) )            
-                
-    #             cos_gt = Rgt_np[b,0,0]
-    #             sin_gt = Rgt_np[b,1,0]
-                
-    #             yaw_gt = np.degrees( np.arctan2(sin_gt, cos_gt) )
-                
-    #             diff = np.abs(yaw - yaw_gt)
-    
-    #             yaw_error.append(np.min([diff, 360-diff]))          
-
-    #     translation_error_mean = np.mean(translation_error)    
-    #     translation_error_median = np.median(translation_error)
-         
-    #     yaw_error_mean = np.mean(yaw_error)    
-    #     yaw_error_median = np.median(yaw_error) 
-    
-    #     print(f'📉 Mean Translation Error: {translation_error_mean:.3f}')
-    #     print(f'📉 Median Translation Error: {translation_error_median:.3f}')
-    #     print(f'📉 Mean Yaw Error: {yaw_error_mean:.3f}')
-    #     print(f'📉 Median Yaw Error: {yaw_error_median:.3f}')
-        
-    #     file = results_dir+'Mean_distance_error.txt'
-    #     with open(file,'ab') as f:
-    #         np.savetxt(f, [translation_error_mean], fmt='%4f', header='Validation_set_mean_distance_error_in_pixels:', comments=str(epoch)+'_')
-    
-    #     file = results_dir+'Median_distance_error.txt'
-    #     with open(file,'ab') as f:
-    #         np.savetxt(f, [translation_error_median], fmt='%4f', header='Validation_set_median_distance_error_in_pixels:', comments=str(epoch)+'_')
-    
-    #     file = results_dir+'Mean_orientation_error.txt'
-    #     with open(file,'ab') as f:
-    #         np.savetxt(f, [yaw_error_mean], fmt='%4f', header='Validation_set_mean_yaw_error:', comments=str(epoch)+'_')
-    
-    #     file = results_dir+'Median_orientation_error.txt'
-    #     with open(file,'ab') as f:
-    #         np.savetxt(f, [yaw_error_median], fmt='%4f', header='Validation_set_median_yaw_error:', comments=str(epoch)+'_')
-            
-        
+            writer.add_scalar("error/mean_val_error", val_error_mean, epoch)
+            writer.add_scalar("error/median_val_error", val_error_median, epoch)
 
 writer.flush()
