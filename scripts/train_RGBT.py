@@ -9,6 +9,7 @@ parser.add_argument('-b', '--batch_size', type=int, help='batch size', default=4
 parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', default=1e0)
 parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
+parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -82,25 +83,22 @@ num_virtual_point = config.getint("Loss", "num_virtual_point")
 
 # Load dataset
 print(dataset_root)
-full_dataset = RGBT_Scenes_Dataset(
-    root=dataset_root, split='train', low_memory_mode=True
-)
 
 # Create DataLoaders
-print(len(full_dataset), 'training samples found.')
-num_training_samples = int(len(full_dataset)*0.95)
-train_data, val_data = random_split(full_dataset, [num_training_samples, len(full_dataset) - num_training_samples])
+train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True)
+print(len(train_data), 'training samples found.')
+print(len(val_data), 'validation samples found.')
 
-train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=train_data.dataset.collate_fn)
-val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_data.dataset.collate_fn)
+train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=train_data.collate_fn)
+val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_data.collate_fn)
 # val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
 # Print the indices of each split if desired for reproducibility
 with open('train_indices.txt', 'w') as f:
-    f.write('\n'.join(map(str, train_data.indices)))
+    f.write('\n'.join(map(str, train_data.thermal_images)))
 with open('val_indices.txt', 'w') as f:
-    f.write('\n'.join(map(str, val_data.indices)))
+    f.write('\n'.join(map(str, val_data.thermal_images)))
 
 # Free unused memory
 # torch.cuda.empty_cache()
@@ -128,8 +126,9 @@ global_step = 0
 if epoch_to_resume > 0:
     print("Resuming training from epoch", epoch_to_resume)
     model_path = f'../checkpoints/{label}/{epoch_to_resume}/model.pt'
-    global_step, state_dict = torch.load(model_path)
+    global_step, rng_state, state_dict = torch.load(model_path)
     CVM_model.load_state_dict(state_dict)
+    torch.set_rng_state(rng_state)
     
 CVM_model.to(device)
 CVM_model.train()
@@ -261,7 +260,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
     print('save checkpoint at '+model_dir)
-    torch.save((global_step, CVM_model.cpu().state_dict()), model_dir+'model.pt') # saving model
+    torch.save((global_step, torch.get_rng_state(), CVM_model.cpu().state_dict()), model_dir+'model.pt') # saving model
     # CVM_model.load_state_dict(torch.load(model_dir+'model.pt'))
     CVM_model.cuda() # moving model to GPU for further training
     
@@ -269,7 +268,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
     # Validation 
     # -------------------------
     if epoch % 10 == 0:
-        print(f'📊 Epoch {epoch} - Evaluating on training set...')
+        print(f'📊 Epoch {epoch} - Evaluating on validation set...')
         results_dir = '../results/'+label+'/'
         if not os.path.exists(results_dir):
             os.makedirs(results_dir)

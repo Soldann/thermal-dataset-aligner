@@ -5,3 +5,5 @@ checkpoints/
 KITTI_SUB/
 results/
 aligned_output/
+train_indices*.txt
+val_indices*.txt

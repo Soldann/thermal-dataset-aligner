@@ -9,12 +9,11 @@ parser.add_argument('-b', '--batch_size', type=int, help='batch size', default=4
 parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', default=1e0)
 parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
-parser.add_argument('--skip_training', action='store_true', help='skip training phase and only run evaluation')
+parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 
 args = vars(parser.parse_args())
 machine = args['machine']
 learning_rate = args['learning_rate']
-batch_size = args['batch_size']
 beta = args['beta']
 epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
@@ -59,7 +58,6 @@ def set_seeds(seed):
 
 if machine == 'local':
     dataset_root = config["RGBT_Scenes"]["local_dataset_root"]
-    batch_size = config.getint("RGBT_Scenes", "batch_size")
     learning_rate = config.getfloat("Training", "learning_rate")
     epoch_to_resume = epoch_to_resume if epoch_to_resume > 0 else config.getint("Training", "epoch_to_resume")
     beta = config.getfloat("Loss", "beta")
@@ -83,25 +81,22 @@ num_virtual_point = config.getint("Loss", "num_virtual_point")
 
 # Load dataset
 print(dataset_root)
-full_dataset = RGBT_Scenes_Dataset(
-    root=dataset_root, split='train', low_memory_mode=True
-)
 
 # Create DataLoaders
-print(len(full_dataset), 'training samples found.')
-num_training_samples = int(len(full_dataset)*0.95)
-train_data, val_data = random_split(full_dataset, [num_training_samples, len(full_dataset) - num_training_samples])
+train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True)
+print(len(train_data), 'training samples found.')
+print(len(val_data), 'validation samples found.')
 
-train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True, num_workers=4, collate_fn=train_data.dataset.collate_fn)
-val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4, collate_fn=val_data.dataset.collate_fn)
+train_dataloader = DataLoader(train_data, batch_size=1, shuffle=True, num_workers=4, collate_fn=train_data.collate_fn)
+val_dataloader = DataLoader(val_data, batch_size=1, shuffle=False, num_workers=4, collate_fn=val_data.collate_fn)
 # val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
 
 # Print the indices of each split if desired for reproducibility
 with open('train_indices.txt', 'w') as f:
-    f.write('\n'.join(map(str, train_data.indices)))
+    f.write('\n'.join(map(str, train_data.thermal_images)))
 with open('val_indices.txt', 'w') as f:
-    f.write('\n'.join(map(str, val_data.indices)))
+    f.write('\n'.join(map(str, val_data.thermal_images)))
 
 # Free unused memory
 # torch.cuda.empty_cache()
@@ -129,9 +124,10 @@ global_step = 0
 if epoch_to_resume > 0:
     print("Resuming training from epoch", epoch_to_resume)
     model_path = f'../checkpoints/{label}/{epoch_to_resume}/model.pt'
-    global_step, state_dict = torch.load(model_path)
+    global_step, rng_state, state_dict = torch.load(model_path)
     print(f"Loaded checkpoint from {model_path} at global step {global_step}.")
     CVM_model.load_state_dict(state_dict)
+    torch.set_rng_state(rng_state)
     
 CVM_model.to(device)
 CVM_model.train()
@@ -149,23 +145,10 @@ writer_dir = f'../tensorboard/{label}/'
 os.makedirs(writer_dir, exist_ok=True)
 writer = SummaryWriter(log_dir=writer_dir)
 
-# Define metric grids for training
-def create_metric_grid(grid_size, res, batch_size): 
-    x, y = np.linspace(-grid_size/2, grid_size/2, res[0]), np.linspace(-grid_size/2, grid_size/2, res[1])
-    metric_x, metric_y = np.meshgrid(x, y, indexing='ij')
-    metric_x, metric_y = torch.tensor(metric_x).flatten().unsqueeze(0).unsqueeze(-1), torch.tensor(metric_y).flatten().unsqueeze(0).unsqueeze(-1)
-    metric_coord = torch.cat((metric_x, metric_y), -1).to(device).float()
-    return metric_coord.repeat(batch_size, 1, 1)
-
-metric_coord_grd_B = create_metric_grid(grid_size_h, (int(np.floor(grd_bev_res/2))+1, grd_bev_res), batch_size)
-metric_coord_sat_B = create_metric_grid(grid_size_h, (sat_bev_res, sat_bev_res), batch_size)
-metric_coord4loss = create_metric_grid(loss_grid_size, (num_virtual_point, num_virtual_point), 1)
-
-
 # -------------------------
 # Training Loop
 # -------------------------
-print(f'📊 Model: {label}. Evaluating on training set...')
+print(f'📊 Model: {label}. Evaluating on validation set...')
 results_dir = '../results/'+label+'/'
 if not os.path.exists(results_dir):
     os.makedirs(results_dir)
@@ -174,8 +157,8 @@ with torch.no_grad():
     CVM_model.eval()
     distance_error = []
 
-    visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
-    # visualization_index = 0
+    # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
+    visualization_index = 0
     for i, data in enumerate(val_dataloader, 0):
         img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
 
@@ -200,11 +183,10 @@ with torch.no_grad():
         batch_idx = torch.arange(B).unsqueeze(1).to(device)  # shape (B,1)
         scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
         scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
-        print(conf)
         
         if i == visualization_index:
             for item_to_pick in range(B):
-                visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256)
+                visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=10)
 
         img1_loss = F.cross_entropy(
             scores_img1[max_keypoints_mask],
