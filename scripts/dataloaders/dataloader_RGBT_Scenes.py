@@ -143,7 +143,7 @@ class RGBT_Scenes_Dataset(Dataset):
     def __getitem__(self, idx):
         image1, image2 = self.image_pairs[idx]
         img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
-        print("loaded data for image pair:", image1, image2)
+        # print("loaded data for image pair:", image1, image2)
         return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0]
 
 if __name__ == "__main__":
