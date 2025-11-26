@@ -219,7 +219,8 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
         batch_idx = torch.arange(B).unsqueeze(1).to(device)  # shape (B,1)
         scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
         scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
-
+        predicted_scores_img1 = matching_score[batch_idx, img1_indices_topk]  # (batch, number of gt matches, number of patch categories)
+        predicted_scores_img2 = matching_score.transpose(1,2)[batch_idx, img2_indices_topk]  # (batch, number of gt matches, number of patch categories)
         # print(matching_score.squeeze(0)[patches_2.squeeze(0), :].shape)
         # print(matching_score.squeeze(0).transpose(1, 0)[patches_1.squeeze(0), :].shape)
         # print("img1_indices_topk.shape:", img1_indices_topk.shape)
@@ -228,23 +229,28 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
         # print("matching_score_after_indexes shape:", matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :].shape)
         # print("img1 matching score size vs gt patch matches size: ", matching_score.squeeze(0)[patches_2, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_1.shape)
         # print("img2 matching score size vs gt patch matches size: ",matching_score.squeeze(0).transpose(1, 0)[patches_1, :].squeeze(0)[:max_keypoints_for_comparison, :].shape, patches_2.shape)
+        print("scores_img1 shape:", scores_img1.shape)
+        print("scores_img2 shape:", scores_img2.shape)
+        print("predicted_scores_img1 shape:", predicted_scores_img1.shape)
+        print("predicted_scores_img2 shape:", predicted_scores_img2.shape)
+        
         img1_loss = F.cross_entropy(
             scores_img1[max_keypoints_mask],
             patches_1[max_keypoints_mask]
         )
-        # img1_topk_loss = F.cross_entropy(
-        #     matching_score[max_keypoints_mask],
-        #     patches_1[max_keypoints_mask]
-        # )
-        img2_loss = F.cross_entropy(
-                scores_img2[max_keypoints_mask],
-                patches_2[max_keypoints_mask]
+        img1_topk_loss = F.cross_entropy(
+            predicted_scores_img1[max_keypoints_mask[:, :num_keypoints]],
+            patches_1[max_keypoints_mask]
         )
-        # img2_topk_loss = F.cross_entropy(
-            # matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
-            # patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
-        # )
-        loss = img1_loss + img2_loss #+ img1_topk_loss + img2_topk_loss
+        img2_loss = F.cross_entropy(
+            scores_img2[max_keypoints_mask],
+            patches_2[max_keypoints_mask]
+        )
+        img2_topk_loss = F.cross_entropy(
+            predicted_scores_img2[max_keypoints_mask[:, :num_keypoints]],
+            patches_2[max_keypoints_mask]
+        )
+        loss = img1_loss + img2_loss + 0.5*img1_topk_loss + 0.5*img2_topk_loss
         print("loss:", loss.item())
         # Backpropagation
         optimizer.zero_grad()
@@ -303,7 +309,9 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 batch_idx = torch.arange(B).unsqueeze(1).to(device)  # shape (B,1)
                 scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
                 scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
-                
+                predicted_scores_img1 = matching_score[batch_idx, img1_indices_topk]  # (batch, number of gt matches, number of patch categories)
+                predicted_scores_img2 = matching_score.transpose(1,2)[batch_idx, img2_indices_topk]  # (batch, number of gt matches, number of patch categories)
+
                 if i == visualization_index:
                     item_to_pick = torch.randint(0, B, (1,)).item()
                     # visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14)
@@ -312,19 +320,19 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                     scores_img1[max_keypoints_mask],
                     patches_1[max_keypoints_mask]
                 )
-                # img1_topk_loss = F.cross_entropy(
-                #     matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
-                #     patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
-                # )
+                img1_topk_loss = F.cross_entropy(
+                    predicted_scores_img1[max_keypoints_mask[:, :num_keypoints]],
+                    patches_1[max_keypoints_mask]
+                )
                 img2_loss = F.cross_entropy(
                     scores_img2[max_keypoints_mask],
                     patches_2[max_keypoints_mask]
                 )
-                # img2_topk_loss = F.cross_entropy(
-                #     matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
-                #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
-                # )
-                loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
+                img2_topk_loss = F.cross_entropy(
+                    predicted_scores_img2[max_keypoints_mask[:, :num_keypoints]],
+                    patches_2[max_keypoints_mask]
+                )
+                loss = img1_loss + img2_loss + 0.5*img1_topk_loss + 0.5*img2_topk_loss
                 val_error.append(loss.item())       
                 writer.add_scalar("loss/val_error", loss.item(), global_step)
             
