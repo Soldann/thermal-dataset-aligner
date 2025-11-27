@@ -184,9 +184,9 @@ with torch.no_grad():
         scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
         scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
         
-        if i == visualization_index:
-            for item_to_pick in range(B):
-                visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=10)
+        # if i == visualization_index:
+        for item_to_pick in range(B):
+            visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=10)
 
         img1_loss = F.cross_entropy(
             scores_img1[max_keypoints_mask],
