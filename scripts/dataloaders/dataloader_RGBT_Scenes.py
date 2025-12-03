@@ -29,6 +29,11 @@ from alignment_methods.combined_aligner import CombinedAligner
 from alignment_methods.dataset_aligner_base import DatasetAligner
 from feature_matchers.base_feature_matcher import FeatureMatcher
 from feature_matchers.vggt_feature_matcher import VGGTFeatureMatcher
+import sys
+import os
+
+# Add parent directory to sys.path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from keypoint_patches import compute_patch_matches
 import glob
 
@@ -59,7 +64,7 @@ class RGBT_Scenes_Dataset(Dataset):
         val_dataset = RGBT_Scenes_Dataset(root, [Path(thermal_images[i]) for i in val_indices], [Path(rgb_images[i]) for i in val_indices], low_memory_mode=low_memory_mode)
         return train_dataset, val_dataset
 
-    def __init__(self, root, thermal_images, rgb_images, transform=None, low_memory_mode=False):
+    def __init__(self, root, thermal_images, rgb_images, window_size=10, low_memory_mode=False):
         self.root: Path = Path(root)
         self.data_correspondencer = None
 
@@ -71,11 +76,10 @@ class RGBT_Scenes_Dataset(Dataset):
         # Sample from all combinations of thermal images within a sliding window of 5 images
         self.image_pairs = []
         self.image_pair_indexes = []
-        window_size = 5
+        digit_pattern = r'\d+'
         for i in range(len(self.thermal_images)):
+            dataset_image1_num = int(re.search(digit_pattern, self.thermal_images[i].stem).group())
             for j in range(i+1, min(i + window_size, len(self.thermal_images))):
-                digit_pattern = r'\d+'
-                dataset_image1_num = int(re.search(digit_pattern, self.thermal_images[i].stem).group())
                 dataset_image2_num = int(re.search(digit_pattern, self.thermal_images[j].stem).group())
                 if abs(dataset_image1_num - dataset_image2_num) < window_size:
                     self.image_pairs.append((self.thermal_images[i].stem, self.thermal_images[j].stem))
@@ -84,6 +88,8 @@ class RGBT_Scenes_Dataset(Dataset):
         # self.image_pairs = self.image_pairs[:10] # For testing, limit to first 10 pairs
         (self.root / 'keypoint_cache').mkdir(parents=True, exist_ok=True)
         if low_memory_mode:
+            validated_pairs = []
+            validated_pair_indexes = []
             for (image1, image2), (img1_idx, img2_idx) in zip(self.image_pairs, self.image_pair_indexes):
                 print("processing image pair:", image1, image2)
                 if not (self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt").exists():
@@ -103,11 +109,13 @@ class RGBT_Scenes_Dataset(Dataset):
                 
                 if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
                     print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
-                    self.image_pairs.remove((image1, image2))
-                    self.image_pair_indexes.remove((img1_idx, img2_idx))
                     continue
+                else:
+                    validated_pairs.append((image1, image2))
+                    validated_pair_indexes.append((img1_idx, img2_idx))
                     # raise ValueError("No keypoints found.")
-
+            self.image_pairs = validated_pairs
+            self.image_pair_indexes = validated_pair_indexes
         else:
             img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pair_indexes)
             
@@ -147,9 +155,6 @@ class RGBT_Scenes_Dataset(Dataset):
         return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0]
 
 if __name__ == "__main__":
-    data = RGBT_Scenes_Dataset(
-        root='/home/landson/RGBT-Scenes/Building',
-        split='train',
-        low_memory_mode=True
-    )
-    print(len(data))
+    train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders("/home/landson/RGBT-Scenes/Building", training_ratio=0.7, low_memory_mode=True)
+    print(len(train_data), 'training samples found.')
+    print(len(val_data), 'validation samples found.')
