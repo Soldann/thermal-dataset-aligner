@@ -85,7 +85,7 @@ num_virtual_point = config.getint("Loss", "num_virtual_point")
 print(dataset_root)
 
 # Create DataLoaders
-train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True)
+train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True, image_mode=RGBT_Scenes_Dataset.ImagePairMode.rgb_to_thermal)
 print(len(train_data), 'training samples found.')
 print(len(val_data), 'validation samples found.')
 
