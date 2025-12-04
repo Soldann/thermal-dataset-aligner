@@ -26,8 +26,9 @@ import matplotlib.pyplot as plt
 plt.switch_backend('tkagg')
 
 class ImageModality(Enum):
-    thermal = "thermal"
-    rgb = "rgb"
+    thermal = 0
+    rgb = 1
+    num_modalities = 2
 
 class DatasetCorrespondencer:
     def __init__(self, feature_matcher: FeatureMatcher, dataset_aligner: DatasetAligner, debug_mode: bool = False):

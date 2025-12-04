@@ -10,6 +10,7 @@ from torchvision import transforms
 import cv2 
 from pathlib import Path
 import math
+from enum import Enum
 import re
 from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
@@ -48,6 +49,10 @@ torch.backends.cudnn.deterministic = True
 torch.use_deterministic_algorithms(mode=True, warn_only=True)
 
 class RGBT_Scenes_Dataset(Dataset):
+    class ImagePairMode(Enum):
+        thermal_to_thermal = "thermal_to_thermal"
+        rgb_to_thermal = "rgb_to_thermal"
+
     @staticmethod
     def build_test_train_dataloaders(root, training_ratio=0.7, low_memory_mode=False):
         root: Path = Path(root)
@@ -64,8 +69,8 @@ class RGBT_Scenes_Dataset(Dataset):
         val_dataset = RGBT_Scenes_Dataset(root, [Path(thermal_images[i]) for i in val_indices], [Path(rgb_images[i]) for i in val_indices], low_memory_mode=low_memory_mode)
         return train_dataset, val_dataset
 
-    def __init__(self, root, thermal_images, rgb_images, window_size=10, low_memory_mode=False):
-        self.root: Path = Path(root)
+    def __init__(self, root, thermal_images, rgb_images, window_size=10, low_memory_mode=False, image_mode=ImagePairMode.thermal_to_thermal):
+        self.keypoint_cache_path: Path = Path(root) / 'keypoint_cache' / image_mode.value
         self.data_correspondencer = None
 
         self.thermal_images = thermal_images
@@ -86,26 +91,36 @@ class RGBT_Scenes_Dataset(Dataset):
                     self.image_pair_indexes.append((i, j))
 
         # self.image_pairs = self.image_pairs[:10] # For testing, limit to first 10 pairs
-        (self.root / 'keypoint_cache').mkdir(parents=True, exist_ok=True)
+        (self.keypoint_cache_path).mkdir(parents=True, exist_ok=True)
         if low_memory_mode:
             validated_pairs = []
             validated_pair_indexes = []
             for (image1, image2), (img1_idx, img2_idx) in zip(self.image_pairs, self.image_pair_indexes):
                 print("processing image pair:", image1, image2)
-                if not (self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt").exists():
+                if not (self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt").exists():
                     if self.data_correspondencer is None:
                         self.data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), CombinedAligner())
-                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], [ImageModality.thermal]*2)
+                    
+                    if image_mode == RGBT_Scenes_Dataset.ImagePairMode.thermal_to_thermal:
+                        img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], [ImageModality.thermal]*2)
+                    elif image_mode == RGBT_Scenes_Dataset.ImagePairMode.rgb_to_thermal:
+                        # randomly pick one rgb and one thermal image
+                        modalities = [ImageModality.rgb, ImageModality.thermal]
+                        randomized_modalities = modalities[torch.randperm(len(modalities))]
+                        img1_list, img2_list, kpts1_list, kpts2_list, conf_list =  self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], randomized_modalities)
+                    else:
+                        raise ValueError("Invalid image mode.")
+
                     patches_1, patches_2 = [], []
                     for img1, kpts1, kpts2 in zip(img1_list, kpts1_list, kpts2_list):
                         p1, p2 = compute_patch_matches(kpts1, kpts2, img1.shape[1:], patch_size=14) # img1 shape is (C, H, W)
                         patches_1.append(p1)
                         patches_2.append(p2)
                     
-                    torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2), self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                    torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2), self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
                 else:
                     print("loading cached keypoints for image pair:", image1, image2)
-                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
                 
                 if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
                     print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
@@ -117,8 +132,12 @@ class RGBT_Scenes_Dataset(Dataset):
             self.image_pairs = validated_pairs
             self.image_pair_indexes = validated_pair_indexes
         else:
-            img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pair_indexes)
-            
+            if image_mode == RGBT_Scenes_Dataset.ImagePairMode.thermal_to_thermal:
+                img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, [ImageModality.thermal]*len(self.thermal_images), self.image_pair_indexes)
+            elif image_mode == RGBT_Scenes_Dataset.ImagePairMode.rgb_to_thermal:
+                randomized_modalities_list = torch.randint(0, ImageModality.num_modalities.value, (len(self.thermal_images),))
+                img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences(self.rgb_images, self.thermal_images, randomized_modalities_list, self.image_pair_indexes)
+
             patches_1, patches_2 = [], []
             for img1, kpts1, kpts2 in zip(img1_list, kpts1_list, kpts2_list):
                 p1, p2 = compute_patch_matches(kpts1, kpts2, img1.shape[2:], patch_size=14)
@@ -127,7 +146,7 @@ class RGBT_Scenes_Dataset(Dataset):
 
             for i, (image1, image2) in enumerate(self.image_pairs):
                 print("saving precomputed keypoints for image pair:", image1, image2)
-                torch.save((img1_list[i], img2_list[i], kpts1_list[i], kpts2_list[i], conf_list[i], patches_1[i], patches_2[i]), self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt")
+                torch.save((img1_list[i], img2_list[i], kpts1_list[i], kpts2_list[i], conf_list[i], patches_1[i], patches_2[i]), self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
 
     def collate_fn(self, batch):
         images1, images2, conf, patches1, patches2, patches1_length, patches2_length = zip(*batch)
@@ -150,7 +169,7 @@ class RGBT_Scenes_Dataset(Dataset):
 
     def __getitem__(self, idx):
         image1, image2 = self.image_pairs[idx]
-        img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.root / 'keypoint_cache' / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
+        img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
         # print("loaded data for image pair:", image1, image2)
         return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0]
 
