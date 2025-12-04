@@ -59,13 +59,13 @@ def set_seeds(seed):
 
 if machine == 'local':
     dataset_root = config["RGBT_Scenes"]["local_dataset_root"]
-    batch_size = config.getint("RGBT_Scenes", "batch_size")
-    learning_rate = config.getfloat("Training", "learning_rate")
-    epoch_to_resume = epoch_to_resume if epoch_to_resume > 0 else config.getint("Training", "epoch_to_resume")
-    beta = config.getfloat("Loss", "beta")
-
 elif machine == 'scitas':
     dataset_root = config["RGBT_Scenes"]["scitas_dataset_root"]
+
+batch_size = config.getint("RGBT_Scenes", "batch_size")
+learning_rate = config.getfloat("Training", "learning_rate")
+beta = config.getfloat("Loss", "beta")
+epoch_to_resume = epoch_to_resume if epoch_to_resume > 0 else config.getint("Training", "epoch_to_resume")
 
 grid_size_h = config.getfloat("RGBT_Scenes", "grid_size_h")
 grid_size_v = config.getfloat("RGBT_Scenes", "grid_size_v")
