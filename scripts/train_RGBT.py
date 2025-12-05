@@ -10,6 +10,7 @@ parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', def
 parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
+parser.add_argument('--num_images_to_log', type=int, help='number of images to log', default=5)
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -18,6 +19,7 @@ batch_size = args['batch_size']
 beta = args['beta']
 epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
+num_images_to_log = args['num_images_to_log']
 
 # Load configuration
 import configparser
@@ -31,6 +33,7 @@ from dataloaders.dataloader_RGBT_Scenes import RGBT_Scenes_Dataset, random_split
 from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
+import wandb
 from torch.nn import functional as F
 
 from models.model_RGBT import CVM_Thermal
@@ -141,7 +144,8 @@ for param in CVM_model.parameters():
 params = [p for p in CVM_model.parameters() if p.requires_grad]
 optimizer = torch.optim.AdamW(params, lr=learning_rate, betas=(0.9, 0.999))
 
-# Setup TensorBoard logging
+# Setup TensorBoard / wandb logging
+run = wandb.init(project="semester-project", sync_tensorboard=True, config=config, name=label)
 writer_dir = f'../tensorboard/{label}/'
 os.makedirs(writer_dir, exist_ok=True)
 writer = SummaryWriter(log_dir=writer_dir)
@@ -277,8 +281,8 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
             CVM_model.eval()
             val_error = []
 
-            visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
-            # visualization_index = 0
+            # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
+            visualization_index = 0
             for i, data in enumerate(val_dataloader, 0):
                 img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
 
@@ -305,8 +309,11 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
                 
                 if i == visualization_index:
-                    item_to_pick = torch.randint(0, B, (1,)).item()
-                    # visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14)
+                    vis_imgs = [
+                        visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, headless=True)
+                        for item_to_pick in range(max(B, num_images_to_log))
+                    ]
+                    wandb.log({"validation/patch_matches": [wandb.Image(vis_img) for vis_img in vis_imgs]}, step=epoch)
 
                 img1_loss = F.cross_entropy(
                     scores_img1[max_keypoints_mask],
