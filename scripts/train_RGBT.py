@@ -332,8 +332,9 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                 # )
                 loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
-                val_error.append(loss.item())       
-                writer.add_scalar("loss/val_error", loss.item(), global_step)
+                val_error.append(loss.item())
+                if i == visualization_index:
+                    writer.add_scalar("loss/val_error", loss.item(), global_step)
             
             val_error_mean = np.mean(val_error)    
             val_error_median = np.median(val_error) 
