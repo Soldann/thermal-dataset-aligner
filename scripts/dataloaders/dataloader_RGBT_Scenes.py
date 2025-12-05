@@ -128,7 +128,7 @@ class RGBT_Scenes_Dataset(Dataset):
                     torch.save((img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2), self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
                 else:
                     print("loading cached keypoints for image pair:", image1, image2)
-                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
+                    img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
                 
                 if kpts1_list[0].shape[0] == 0 or kpts2_list[0].shape[0] == 0:
                     print(f"No keypoints found for image pair: {image1}, {image2}. Skipping.")
