@@ -311,7 +311,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 if i == visualization_index:
                     vis_imgs = [
                         visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256, headless=True)
-                        for item_to_pick in range(max(B, num_images_to_log))
+                        for item_to_pick in range(min(B, num_images_to_log))
                     ]
                     wandb.log({"validation/patch_matches": [wandb.Image(vis_img) for vis_img in vis_imgs]}, step=epoch)
 
