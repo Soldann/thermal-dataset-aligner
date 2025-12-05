@@ -60,13 +60,19 @@ class RGBT_Scenes_Dataset(Dataset):
         thermal_images = glob.glob(os.path.join(root, 'thermal', 'train', '*.jpg')) + glob.glob(os.path.join(root, 'thermal', 'test', '*.jpg'))
         rgb_images = glob.glob(os.path.join(root, 'rgb', 'train', '*.jpg')) + glob.glob(os.path.join(root, 'rgb', 'test', '*.jpg'))
 
+        thermal_images = [Path(p) for p in thermal_images]
+        rgb_images = [Path(p) for p in rgb_images]
+
+        thermal_images = sorted(thermal_images, key=lambda x: x.stem)
+        rgb_images = sorted(rgb_images, key=lambda x: x.stem)
+
         # pick a random subset of training_ratio of the data for training
         randomized_indices = torch.randperm(len(thermal_images))
         train_size = int(training_ratio * len(thermal_images))
         train_indices = randomized_indices[:train_size]
         val_indices = randomized_indices[train_size:]
-        train_dataset = RGBT_Scenes_Dataset(root, [Path(thermal_images[i]) for i in train_indices], [Path(rgb_images[i]) for i in train_indices], low_memory_mode=low_memory_mode, image_mode=image_mode)
-        val_dataset = RGBT_Scenes_Dataset(root, [Path(thermal_images[i]) for i in val_indices], [Path(rgb_images[i]) for i in val_indices], low_memory_mode=low_memory_mode, image_mode=image_mode)
+        train_dataset = RGBT_Scenes_Dataset(root, [thermal_images[i] for i in train_indices], [rgb_images[i] for i in train_indices], low_memory_mode=low_memory_mode, image_mode=image_mode)
+        val_dataset = RGBT_Scenes_Dataset(root, [thermal_images[i] for i in val_indices], [rgb_images[i] for i in val_indices], low_memory_mode=low_memory_mode, image_mode=image_mode)
         return train_dataset, val_dataset
 
     def __init__(self, root, thermal_images, rgb_images, window_size=10, low_memory_mode=False, image_mode=ImagePairMode.thermal_to_thermal):
