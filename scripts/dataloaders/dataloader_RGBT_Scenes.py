@@ -105,9 +105,11 @@ class RGBT_Scenes_Dataset(Dataset):
                         img1_list, img2_list, kpts1_list, kpts2_list, conf_list = self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], [ImageModality.thermal]*2)
                     elif image_mode == RGBT_Scenes_Dataset.ImagePairMode.rgb_to_thermal:
                         # randomly pick one rgb and one thermal image
-                        modalities = [ImageModality.rgb, ImageModality.thermal]
-                        randomized_modalities = modalities[torch.randperm(len(modalities))]
-                        img1_list, img2_list, kpts1_list, kpts2_list, conf_list =  self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], randomized_modalities)
+                        if torch.rand(1).item() < 0.5:
+                            randomized_modalities_list = [ImageModality.rgb, ImageModality.thermal]
+                        else:
+                            randomized_modalities_list = [ImageModality.thermal, ImageModality.rgb]
+                        img1_list, img2_list, kpts1_list, kpts2_list, conf_list =  self.data_correspondencer.compute_correspondences([self.rgb_images[img1_idx], self.rgb_images[img2_idx]], [self.thermal_images[img1_idx], self.thermal_images[img2_idx]], randomized_modalities_list)
                     else:
                         raise ValueError("Invalid image mode.")
 

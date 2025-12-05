@@ -2,7 +2,7 @@
 
 
 
-from enum import Enum
+from enum import IntEnum
 from typing import List
 import torch
 from typing_extensions import Annotated
@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 # Set matplotlib backend for GUI environments
 plt.switch_backend('tkagg')
 
-class ImageModality(Enum):
+class ImageModality(IntEnum):
     thermal = 0
     rgb = 1
     num_modalities = 2
