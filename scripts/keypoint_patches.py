@@ -24,10 +24,10 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
     vis_img = np.concatenate([img1, img2], axis=1)
     offset = img1.shape[1]
 
-    print("img1 shape:", img1.shape, img1.dtype)
-    print("img2 shape:", img2.shape, img2.dtype)
-    print("vis_img dtype:", vis_img.dtype)
-    print("vis_img shape:", vis_img.shape)
+    # print("img1 shape:", img1.shape, img1.dtype)
+    # print("img2 shape:", img2.shape, img2.dtype)
+    # print("vis_img dtype:", vis_img.dtype)
+    # print("vis_img shape:", vis_img.shape)
     vis_img = np.ascontiguousarray(vis_img)
 
     for (patch_1, patch_2) in matches[:patches_to_draw]:
@@ -35,16 +35,16 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
         patch_1_col = patch_1 % num_cols
         patch_2_row = patch_2 // num_cols
         patch_2_col = patch_2 % num_cols
-        print("Visualizing match:", patch_1, patch_2)
+        # print("Visualizing match:", patch_1, patch_2)
         pt1 = tuple((patch_1_col * patch_size + patch_size // 2, patch_1_row * patch_size + patch_size // 2)) # Center of patch 1
         pt2 = tuple((patch_2_col * patch_size + patch_size // 2, patch_2_row * patch_size + patch_size // 2)) # Center of patch 2
         pt2_shifted = (pt2[0] + offset, pt2[1]) # To concatenated image coordinates
 
         # Draw patch rectangles
         half = patch_size // 2
-        print("Drawing rectangles at:", pt1, pt2, pt2_shifted)
-        print("Rectangle corners 1:", (int(pt1[0] - half), int(pt1[1] - half)), (int(pt1[0] + half), int(pt1[1] + half)))
-        print("Rectangle corners 2:", (int(pt2_shifted[0] - half), int(pt2_shifted[1] - half)), (int(pt2_shifted[0] + half), int(pt2_shifted[1] + half)))
+        # print("Drawing rectangles at:", pt1, pt2, pt2_shifted)
+        # print("Rectangle corners 1:", (int(pt1[0] - half), int(pt1[1] - half)), (int(pt1[0] + half), int(pt1[1] + half)))
+        # print("Rectangle corners 2:", (int(pt2_shifted[0] - half), int(pt2_shifted[1] - half)), (int(pt2_shifted[0] + half), int(pt2_shifted[1] + half)))
         cv2.rectangle(vis_img, (int(pt1[0] - half), int(pt1[1] - half)), (int(pt1[0] + half), int(pt1[1] + half)), color, 1)
         cv2.rectangle(vis_img, (int(pt2_shifted[0] - half), int(pt2_shifted[1] - half)), (int(pt2_shifted[0] + half), int(pt2_shifted[1] + half)), color, 1)
 
