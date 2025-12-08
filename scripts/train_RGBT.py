@@ -35,6 +35,7 @@ import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import wandb
 import cv2
+import ahrs
 from torch.nn import functional as F
 
 from models.model_RGBT import CVM_Thermal
@@ -361,18 +362,9 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
 
                     # Compute yaw error
                     Rgt_np, R_np = R_gt.cpu().numpy(), R_est
-                    cos = np.sqrt(R_np[2,1]**2 + R_np[2,2]**2)
-                    sin = -R_np[2,0]
-                    yaw = np.degrees( np.arctan2(sin, cos) )            
-                    
-                    cos_gt = np.sqrt(Rgt_np[2,1]**2 + Rgt_np[2,2]**2)
-                    sin_gt = -Rgt_np[2,0]
-                    
-                    yaw_gt = np.degrees( np.arctan2(sin_gt, cos_gt) )
-                    
-                    diff = np.abs(yaw - yaw_gt)
-        
-                    rotation_errors.append(np.min([diff, 360-diff]))   
+
+                    quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_np), ahrs.Quaternion(dcm=Rgt_np))
+                    rotation_errors.append(quaternion_angle_diff)   
 
                 loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
                 val_error.append(loss.item())
