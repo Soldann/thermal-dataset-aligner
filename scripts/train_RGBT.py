@@ -272,7 +272,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
     # -------------------------
     # Validation 
     # -------------------------
-    if epoch % 5 == 0:
+    if epoch % 1 == 0:
         print(f'📊 Epoch {epoch} - Evaluating on validation set...')
         results_dir = '../results/'+label+'/'
         if not os.path.exists(results_dir):
@@ -333,8 +333,9 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                 # )
 
-                c1Tw = img1_pose # world to cam1
-                wTc2 = img2_inv_pose # cam2 to world
+                homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)
+                c1Tw = torch.cat([img1_pose, homogenous_row], dim=1) # world to cam1
+                wTc2 = torch.cat([img2_inv_pose, homogenous_row], dim=1) # cam2 to world
                 c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
 
                 rotation_errors = []
