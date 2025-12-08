@@ -281,6 +281,8 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
         with torch.no_grad():
             CVM_model.eval()
             val_error = []
+            overall_rotation_errors = []
+            overall_translation_errors = []
 
             # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
             visualization_index = 0
@@ -374,18 +376,32 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
 
                 loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
                 val_error.append(loss.item())
+                overall_rotation_errors.extend(rotation_errors)
+                overall_translation_errors.extend(translation_errors)
                 if i == visualization_index:
                     writer.add_scalar("loss/val_error", loss.item(), global_step)
                     writer.add_scalar("error/rotation_error", np.mean(rotation_errors), global_step)
                     writer.add_scalar("error/translation_error", np.mean(translation_errors), global_step)
             
             val_error_mean = np.mean(val_error)    
-            val_error_median = np.median(val_error) 
+            val_error_median = np.median(val_error)
+            rotation_error_mean = np.mean(overall_rotation_errors)
+            rotation_error_median = np.median(overall_rotation_errors)
+            translation_error_mean = np.mean(overall_translation_errors)
+            translation_error_median = np.median(overall_translation_errors)
         
             print(f'📉 Mean Distance Error: {val_error_mean:.3f}')
             print(f'📉 Median Distance Error: {val_error_median:.3f}')
+            print(f'Mean Rotation Error: {rotation_error_mean:.3f}')
+            print(f'Median Rotation Error: {rotation_error_median:.3f}')
+            print(f'Mean Translation Error: {translation_error_mean:.3f}')
+            print(f'Median Translation Error: {translation_error_median:.3f}')
 
             writer.add_scalar("error/mean_val_error", val_error_mean, epoch)
             writer.add_scalar("error/median_val_error", val_error_median, epoch)
+            writer.add_scalar("error/mean_rotation_error", rotation_error_mean, epoch)
+            writer.add_scalar("error/median_rotation_error", rotation_error_median, epoch)
+            writer.add_scalar("error/mean_translation_error", translation_error_mean, epoch)
+            writer.add_scalar("error/median_translation_error", translation_error_median, epoch)
 
 writer.flush()
