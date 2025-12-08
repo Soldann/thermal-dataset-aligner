@@ -60,6 +60,19 @@ def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0
         plt.show()
     return vis_img
 
+def convert_patches_to_keypoints(patch_indices, image_shape, patch_size=14):
+    # Convert patch indices back to keypoint coordinates (center of patch)
+    H, W = image_shape
+    num_cols = W // patch_size
+    keypoints = []
+    for p in patch_indices:
+        row = p // num_cols
+        col = p % num_cols
+        x = col * patch_size + patch_size // 2
+        y = row * patch_size + patch_size // 2
+        keypoints.append((x, y))
+    return torch.tensor(keypoints)
+
 def compute_patch_matches(keypoints1, keypoints2, image_shape, patch_size=14):
     H, W = image_shape
     num_cols = W // patch_size

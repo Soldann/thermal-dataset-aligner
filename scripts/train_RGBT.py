@@ -34,13 +34,14 @@ from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 import wandb
+import cv2
 from torch.nn import functional as F
 
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
 from models.modules import DinoExtractor
 
-from keypoint_patches import compute_patch_matches, visualize_patch_matches
+from keypoint_patches import compute_patch_matches, visualize_patch_matches, convert_patches_to_keypoints
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -88,7 +89,7 @@ num_virtual_point = config.getint("Loss", "num_virtual_point")
 print(dataset_root)
 
 # Create DataLoaders
-train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True, image_mode=RGBT_Scenes_Dataset.ImagePairMode.rgb_to_thermal)
+train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_root, training_ratio=args['training_ratio'], low_memory_mode=True, image_mode=RGBT_Scenes_Dataset.ImagePairMode.thermal_to_thermal)
 print(len(train_data), 'training samples found.')
 print(len(val_data), 'validation samples found.')
 
@@ -160,7 +161,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
     CVM_model.train()
 
     for i, data in enumerate(train_dataloader, 0):
-        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
+        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = data
         print("Batch", i, "image shapes:", img1.shape, img2.shape)
         # grd, sat, tgt, Rgt = data
         # B, _, sat_size, _ = sat.shape
@@ -284,9 +285,9 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
             # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
             visualization_index = 0
             for i, data in enumerate(val_dataloader, 0):
-                img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
+                img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = data
 
-                img1, img2, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device)
+                img1, img2, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device), img1_pose.to(device), img2_inv_pose.to(device), img1_K.to(device), img2_K.to(device)
 
                 img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
         
@@ -331,10 +332,50 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                 #     matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
                 #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
                 # )
+
+                c1Tw = img1_pose # world to cam1
+                wTc2 = img2_inv_pose # cam2 to world
+                c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
+
+                rotation_errors = []
+                translation_errors = []
+                for batch_item in range(B):
+                    kpts1 = convert_patches_to_keypoints(img1_indices_topk[batch_item].reshape(num_keypoints,).cpu().numpy(), img1.shape[2:])
+                    kpts2 = convert_patches_to_keypoints(img2_indices_topk[batch_item].reshape(num_keypoints,).cpu().numpy(), img2.shape[2:])
+                    E, mask = cv2.findEssentialMat(kpts1, kpts2, cameraMatrix=img1_K, method=cv2.RANSAC, prob=0.999, threshold=1.0)
+                    _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1, kpts2, cameraMatrix=img1_K)
+
+                    # R_est = torch.tensor(R_est).to(device)
+                    t_est = torch.tensor(t_est).to(device)
+                    t_est = t_est / torch.norm(t_est) * torch.norm(t_gt) # set scale of the estimated translation to be the same as ground truth 
+
+                    # compute error in pose
+                    R_gt = c1Tc2[batch_item, :3, :3]
+                    t_gt = c1Tc2[batch_item, :3, 3]
+                    # Compute translation error
+                    translation_errors.extend(torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
+
+                    # Compute yaw error
+                    Rgt_np, R_np = R_gt.cpu().numpy(), R_est
+                    cos = np.sqrt(R_np[2,1]**2 + R_np[2,2]**2)
+                    sin = -R_np[2,0]
+                    yaw = np.degrees( np.arctan2(sin, cos) )            
+                    
+                    cos_gt = np.sqrt(Rgt_np[2,1]**2 + Rgt_np[2,2]**2)
+                    sin_gt = -Rgt_np[2,0]
+                    
+                    yaw_gt = np.degrees( np.arctan2(sin_gt, cos_gt) )
+                    
+                    diff = np.abs(yaw - yaw_gt)
+        
+                    rotation_errors.append(np.min([diff, 360-diff]))   
+
                 loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
                 val_error.append(loss.item())
                 if i == visualization_index:
                     writer.add_scalar("loss/val_error", loss.item(), global_step)
+                    writer.add_scalar("error/rotation_error", np.mean(rotation_errors), global_step)
+                    writer.add_scalar("error/translation_error", np.mean(translation_errors), global_step)
             
             val_error_mean = np.mean(val_error)    
             val_error_median = np.median(val_error) 

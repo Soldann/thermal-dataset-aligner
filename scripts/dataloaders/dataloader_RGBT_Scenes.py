@@ -2,6 +2,7 @@ import os
 import random
 import numpy as np
 import csv
+import pycolmap
 import torch
 import json
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -75,8 +76,10 @@ class RGBT_Scenes_Dataset(Dataset):
         val_dataset = RGBT_Scenes_Dataset(root, [thermal_images[i] for i in val_indices], [rgb_images[i] for i in val_indices], low_memory_mode=low_memory_mode, image_mode=image_mode)
         return train_dataset, val_dataset
 
-    def __init__(self, root, thermal_images, rgb_images, window_size=10, low_memory_mode=False, image_mode=ImagePairMode.thermal_to_thermal):
+    def __init__(self, root: Path, thermal_images, rgb_images, window_size=10, low_memory_mode=False, image_mode=ImagePairMode.thermal_to_thermal):
         self.keypoint_cache_path: Path = Path(root) / 'keypoint_cache' / image_mode.value
+        colmap_path = Path(root) / 'colmap' / 'sparse' / '0'
+        self.colmap_images = pycolmap.Reconstruction(colmap_path).images
         self.data_correspondencer = None
 
         self.thermal_images = thermal_images
@@ -86,6 +89,7 @@ class RGBT_Scenes_Dataset(Dataset):
 
         # Sample from all combinations of thermal images within a sliding window of 5 images
         self.image_pairs = []
+        self.image_numbers = []
         self.image_pair_indexes = []
         digit_pattern = r'\d+'
         for i in range(len(self.thermal_images)):
@@ -94,6 +98,7 @@ class RGBT_Scenes_Dataset(Dataset):
                 dataset_image2_num = int(re.search(digit_pattern, self.thermal_images[j].stem).group())
                 if abs(dataset_image1_num - dataset_image2_num) < window_size:
                     self.image_pairs.append((self.thermal_images[i].stem, self.thermal_images[j].stem))
+                    self.image_numbers.append((dataset_image1_num, dataset_image2_num))
                     self.image_pair_indexes.append((i, j))
 
         # self.image_pairs = self.image_pairs[:10] # For testing, limit to first 10 pairs
@@ -157,12 +162,16 @@ class RGBT_Scenes_Dataset(Dataset):
                 torch.save((img1_list[i], img2_list[i], kpts1_list[i], kpts2_list[i], conf_list[i], patches_1[i], patches_2[i]), self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt")
 
     def collate_fn(self, batch):
-        images1, images2, conf, patches1, patches2, patches1_length, patches2_length = zip(*batch)
+        images1, images2, conf, patches1, patches2, patches1_length, patches2_length, img1_pose, img2_inv_pose, img1_K, img2_K = zip(*batch)
 
         # Stack images into batch tensors
         images1 = torch.stack(images1, dim=0)
         images2 = torch.stack(images2, dim=0)
         conf = torch.stack(conf, dim=0)
+        img1_pose = torch.stack(img1_pose, dim=0)
+        img2_inv_pose = torch.stack(img2_inv_pose, dim=0)
+        img1_K = torch.stack(img1_K, dim=0)
+        img2_K = torch.stack(img2_K, dim=0)
 
         padded_patches1 = pad_sequence(patches1, batch_first=True)
         padded_patches2 = pad_sequence(patches2, batch_first=True)
@@ -170,16 +179,21 @@ class RGBT_Scenes_Dataset(Dataset):
         patches1_length = torch.tensor(patches1_length)
         patches2_length = torch.tensor(patches2_length)
 
-        return images1, images2, conf, padded_patches1, padded_patches2, patches1_length, patches2_length
+        return images1, images2, conf, padded_patches1, padded_patches2, patches1_length, patches2_length, img1_pose, img2_inv_pose, img1_K, img2_K
 
     def __len__(self):
         return len(self.image_pairs)
 
     def __getitem__(self, idx):
         image1, image2 = self.image_pairs[idx]
+        image1_num, image2_num = self.image_numbers[idx]
         img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
+        img1_pose = torch.tensor(self.colmap_images[image1_num].cam_from_world().matrix())
+        img1_K = torch.tensor(self.colmap_images[image1_num].camera.calibration_matrix())
+        img2_inv_pose = torch.tensor(self.colmap_images[image2_num].cam_from_world().inverse().matrix())
+        img2_K = torch.tensor(self.colmap_images[image2_num].camera.calibration_matrix())
         # print("loaded data for image pair:", image1, image2)
-        return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0]
+        return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0], img1_pose, img2_inv_pose, img1_K, img2_K
 
 if __name__ == "__main__":
     train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders("/home/landson/RGBT-Scenes/Building", training_ratio=0.7, low_memory_mode=True)
