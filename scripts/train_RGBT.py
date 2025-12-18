@@ -347,7 +347,7 @@ for epoch in range(epoch_to_resume + 1, 100 + 1):
                     kpts1 = convert_patches_to_keypoints(img1_indices_topk[batch_item].reshape(num_keypoints,), img1.shape[2:]).cpu().numpy()
                     kpts2 = convert_patches_to_keypoints(img2_indices_topk[batch_item].reshape(num_keypoints,), img2.shape[2:]).cpu().numpy()
                     E, mask = cv2.findEssentialMat(kpts1, kpts2, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
-                    _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1, kpts2, cameraMatrix=img1_K[batch_item].cpu().numpy())
+                    _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[mask], kpts2[mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
 
                     # compute error in pose
                     R_gt = c1Tc2[batch_item, :3, :3]
