@@ -1,3 +1,4 @@
+from pathlib import Path
 from xoftr.utils.plotting import make_matching_figure
 from xoftr.xoftr import XoFTR
 from xoftr.config.default import get_cfg_defaults
@@ -29,7 +30,7 @@ class ModelXoFTR:
         config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
 
         # The path for weights
-        ckpt = "../../XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
+        ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
 
         # Data I/O wrapper
         self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)

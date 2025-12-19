@@ -11,7 +11,7 @@ parser.add_argument('--beta', type=float, help='weight on the infoNCE loss', def
 parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume training, will load checkpoint from this number minus one', default=0)
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
-parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='cvm_simple')
+parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='xoftr')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -190,9 +190,9 @@ with torch.no_grad():
             scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
             scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
             
-            if i >= 20:
-                for item_to_pick in range(B):
-                    visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256)
+            # if i >= 20:
+            #     for item_to_pick in range(B):
+            #         visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256)
 
             img1_loss = F.cross_entropy(
                 scores_img1[max_keypoints_mask],
