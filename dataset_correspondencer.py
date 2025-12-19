@@ -22,8 +22,6 @@ import matplotlib.cm as cm
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Set matplotlib backend for GUI environments
-plt.switch_backend('tkagg')
 
 class ImageModality(IntEnum):
     thermal = 0
