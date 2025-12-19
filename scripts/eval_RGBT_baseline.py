@@ -213,8 +213,8 @@ with torch.no_grad():
             distance_loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
             distance_error.append(distance_loss.item())    
         
-        elif model_type == 'xoftr':
-            kpts1, kpts2, mconf = CVM_model(img1, img2)
+        elif model_type == 'xoftr' or model_type == 'loftr':
+            kpts1, kpts2 = CVM_model(img1, img2)
 
             # Compute pose error
             homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)

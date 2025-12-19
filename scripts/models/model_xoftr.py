@@ -35,9 +35,9 @@ class ModelXoFTR:
         # Data I/O wrapper
         self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
 
-    def __call__(self, rgb_image, thermal_image):
+    def __call__(self, img1, img2):
         # Implement feature-based alignment logic here
-        output_data = self.matcher.from_cv_imgs(thermal_image, rgb_image)
+        output_data = self.matcher.from_cv_imgs(img1, img2)
 
         # Matched keypoints
         mkpts0 = output_data['mkpts0']
@@ -50,7 +50,7 @@ class ModelXoFTR:
         img0 = output_data['img0']
         img1 = output_data['img1']
 
-        return mkpts0, mkpts1, mconf
+        return mkpts0, mkpts1
         # Mask outliers using RANSAC (Homography or Fundamental Matrix)
         # RANSAC types: https://opencv.org/blog/evaluating-opencvs-new-ransacs/
 
