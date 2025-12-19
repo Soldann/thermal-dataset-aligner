@@ -52,7 +52,7 @@ class FeatureAligner(DatasetAligner):
         config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
 
         # The path for weights
-        ckpt = "/home/landson/sem-project/XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
+        ckpt = "../XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
 
         # Data I/O wrapper
         self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
