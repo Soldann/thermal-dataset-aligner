@@ -1,3 +1,6 @@
 [submodule "XoFTR"]
 	path = XoFTR
 	url = git@github.com:Soldann/XoFTR.git
+[submodule "vggt"]
+	path = vggt
+	url = git@github.com:facebookresearch/vggt.git
