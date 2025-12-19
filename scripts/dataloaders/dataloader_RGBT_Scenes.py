@@ -87,7 +87,7 @@ class RGBT_Scenes_Dataset(Dataset):
         self.thermal_images.sort()
         self.rgb_images.sort()
 
-        # Sample from all combinations of thermal images within a sliding window of 5 images
+        # Sample from all combinations of thermal images within a sliding window
         self.image_pairs = []
         self.image_numbers = []
         self.image_pair_indexes = []
