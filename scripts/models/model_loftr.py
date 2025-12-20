@@ -4,14 +4,15 @@ import kornia.feature as KF
 # from kornia_moons.viz import draw_LAF_matches
 # import matplotlib.pyplot as plt
 import torch
+import torch.nn as nn
 
-class ModelLoFTR:
+class ModelLoFTR(nn.Module):
     def __init__(self, device):
         super().__init__()
         # Get default configurations
         self.matcher = KF.LoFTR(pretrained="outdoor")
 
-    def __call__(self, img1, img2):
+    def forward(self, img1, img2):
         input_dict = {
             "image0": K.color.rgb_to_grayscale(img1),  # LofTR works on grayscale images only
             "image1": K.color.rgb_to_grayscale(img2),

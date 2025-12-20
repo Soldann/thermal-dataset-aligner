@@ -1,10 +1,12 @@
 from pathlib import Path
+import torch
+import torch.nn as nn
 from xoftr.utils.plotting import make_matching_figure
 from xoftr.xoftr import XoFTR
 from xoftr.config.default import get_cfg_defaults
 from xoftr.utils.data_io import DataIOWrapper, lower_config
 
-class ModelXoFTR:
+class ModelXoFTR(nn.Module):
     def __init__(self, device):
         super().__init__()
         # Get default configurations
@@ -35,7 +37,7 @@ class ModelXoFTR:
         # Data I/O wrapper
         self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
 
-    def __call__(self, img1, img2):
+    def forward(self, img1, img2):
         # Implement feature-based alignment logic here
         output_data = self.matcher.from_cv_imgs(img1, img2)
 
