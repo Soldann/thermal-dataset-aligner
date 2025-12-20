@@ -25,7 +25,7 @@ class ModelXoFTR(nn.Module):
         config['xoftr']['fine']['denser'] = False # Default False
 
         # XoFTR model
-        self.matcher = XoFTR(config=config["xoftr"])
+        self.matcher = XoFTR(config=config["xoftr"]).to(device)
 
         # # The input image sizes for xoftr
         # # Note: The output matches and output images are in original image size
@@ -49,15 +49,16 @@ class ModelXoFTR(nn.Module):
         output_data = self.matcher(batch)
 
         # Matched keypoints
-        mkpts0 = output_data['mkpts0']
-        mkpts1 = output_data['mkpts1']
+        mkpts0 = batch['mkpts0_f']
+        mkpts1 = batch['mkpts1_f']
+        mconf = batch['mconf_f']
 
-        # Confidence values for fine-level matching
-        mconf = output_data['mconf']
+        # # Confidence values for fine-level matching
+        # mconf = output_data['mconf']
 
-        # Original images BGR or GRAY
-        img0 = output_data['img0']
-        img1 = output_data['img1']
+        # # Original images BGR or GRAY
+        # img0 = output_data['img0']
+        # img1 = output_data['img1']
 
         return mkpts0, mkpts1
         # Mask outliers using RANSAC (Homography or Fundamental Matrix)

@@ -116,11 +116,11 @@ shared_feature_extractor = DinoExtractor().to(device)
 #                 embed_dim=1024, grid_size_h=grid_size_h, grid_size_v=grid_size_v)
 if model_type == 'cvm_simple':
     CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
-    CVM_model = CVM_model.to(device)
 elif model_type == 'xoftr':
     CVM_model = ModelXoFTR(device)
 else:
     raise ValueError(f"Unknown model type: {model_type}")
+CVM_model = CVM_model.to(device)
 
 # Generate label for logging
 label = (f"RGBT_Scenes_{CVM_model.__class__.__name__}_num_matches_{num_samples_matches}"
