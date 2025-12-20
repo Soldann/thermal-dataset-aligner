@@ -39,7 +39,7 @@ class ModelXoFTR(nn.Module):
 
     def forward(self, img1, img2):
         # Implement feature-based alignment logic here
-        output_data = self.matcher.from_cv_imgs(img1, img2)
+        output_data = self.matcher.from_cv_imgs(img1.cpu().numpy(), img2.cpu().numpy())
 
         # Matched keypoints
         mkpts0 = output_data['mkpts0']
