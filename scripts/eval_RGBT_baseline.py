@@ -216,12 +216,13 @@ with torch.no_grad():
         elif model_type == 'xoftr' or model_type == 'loftr':
             kpts1, kpts2 = CVM_model(img1, img2)
 
+            B = img1.shape[0]
             # Compute pose error
             homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)
             c1Tw = torch.cat([img1_pose, homogenous_row], dim=1) # world to cam1
             wTc2 = torch.cat([img2_inv_pose, homogenous_row], dim=1) # cam2 to world
             c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
-
+            
             rotation_errors = []
             translation_errors = []
             for batch_item in range(B):
