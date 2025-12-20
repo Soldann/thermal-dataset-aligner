@@ -1,6 +1,7 @@
 from pathlib import Path
 import torch
 import torch.nn as nn
+import torchvision
 from xoftr.utils.plotting import make_matching_figure
 from xoftr.xoftr import XoFTR
 from xoftr.config.default import get_cfg_defaults
@@ -24,22 +25,28 @@ class ModelXoFTR(nn.Module):
         config['xoftr']['fine']['denser'] = False # Default False
 
         # XoFTR model
-        matcher = XoFTR(config=config["xoftr"])
+        self.matcher = XoFTR(config=config["xoftr"])
 
-        # The input image sizes for xoftr
-        # Note: The output matches and output images are in original image size
-        config['test']['img0_resize'] = 640 # resize the longer side, None for no resize
-        config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
+        # # The input image sizes for xoftr
+        # # Note: The output matches and output images are in original image size
+        # config['test']['img0_resize'] = 640 # resize the longer side, None for no resize
+        # config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
 
-        # The path for weights
-        ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
+        # # The path for weights
+        # ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
 
-        # Data I/O wrapper
-        self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
+        # # Data I/O wrapper
+        # self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
 
     def forward(self, img1, img2):
         # Implement feature-based alignment logic here
-        output_data = self.matcher.from_cv_imgs(img1.cpu().numpy(), img2.cpu().numpy())
+        transform = torchvision.transforms.Grayscale()
+        img1_grey = transform(img1)
+        img2_grey = transform(img2)
+
+        batch = {'image0': img1_grey, 'image1': img2_grey}
+
+        output_data = self.matcher(batch)
 
         # Matched keypoints
         mkpts0 = output_data['mkpts0']
