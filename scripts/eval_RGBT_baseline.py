@@ -40,6 +40,7 @@ from torch.nn import functional as F
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
 from models.model_xoftr import ModelXoFTR
+from models.model_match_anything import ModelMatchAnything
 from models.modules import DinoExtractor
 
 from keypoint_patches import compute_patch_matches, visualize_patch_matches
@@ -118,6 +119,8 @@ if model_type == 'cvm_simple':
     CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
 elif model_type == 'xoftr':
     CVM_model = ModelXoFTR(device)
+elif model_type == 'match_anything':
+    CVM_model = ModelMatchAnything(device)
 else:
     raise ValueError(f"Unknown model type: {model_type}")
 CVM_model = CVM_model.to(device)
@@ -213,7 +216,7 @@ with torch.no_grad():
             distance_loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
             distance_error.append(distance_loss.item())    
         
-        elif model_type == 'xoftr' or model_type == 'loftr':
+        elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
             kpts1, kpts2 = CVM_model(img1, img2)
 
             B = img1.shape[0]

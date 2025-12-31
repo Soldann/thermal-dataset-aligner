@@ -4,3 +4,6 @@
 [submodule "vggt"]
 	path = vggt
 	url = git@github.com:facebookresearch/vggt.git
+[submodule "MatchAnything"]
+	path = MatchAnything
+	url = git@github.com:Soldann/MatchAnything.git
