@@ -25,36 +25,32 @@ class ModelXoFTR(nn.Module):
         config['xoftr']['fine']['denser'] = False # Default False
 
         # XoFTR model
-        self.matcher = XoFTR(config=config["xoftr"]).to(device)
+        matcher = XoFTR(config=config["xoftr"]).to(device)
 
-        # # The input image sizes for xoftr
-        # # Note: The output matches and output images are in original image size
-        # config['test']['img0_resize'] = 640 # resize the longer side, None for no resize
-        # config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
+        # The input image sizes for xoftr
+        # Note: The output matches and output images are in original image size
+        config['test']['img0_resize'] = 640 # resize the longer side, None for no resize
+        config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
 
-        # # The path for weights
+        # The path for weights
         ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
-        ckpt_dict = torch.load(ckpt)
-        self.matcher.load_state_dict(ckpt_dict['state_dict'])
-        self.matcher = self.matcher.eval().to(device)
-        # # Data I/O wrapper
-        # self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
+
+        # Data I/O wrapper
+        self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
 
     def forward(self, img1, img2):
-        # Implement feature-based alignment logic here
-        transform = torchvision.transforms.Grayscale()
-        img1_grey = transform(img1)
-        img2_grey = transform(img2)
-
-        batch = {'image0': img1_grey, 'image1': img2_grey}
-
-        output_data = self.matcher(batch)
+        output_data = self.matcher.from_cv_imgs(img1.permute(1, 2, 0).cpu().numpy(), img2.permute(1, 2, 0).cpu().numpy())
 
         # Matched keypoints
-        mkpts0 = batch['mkpts0_f']
-        mkpts1 = batch['mkpts1_f']
-        mconf = batch['mconf_f']
+        mkpts0 = output_data['mkpts0']
+        mkpts1 = output_data['mkpts1']
 
+        # Confidence values for fine-level matching
+        mconf = output_data['mconf']
+
+        # Original images BGR or GRAY
+        img0 = output_data['img0']
+        img1 = output_data['img1']
         # # Confidence values for fine-level matching
         # mconf = output_data['mconf']
 

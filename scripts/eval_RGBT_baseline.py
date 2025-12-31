@@ -40,6 +40,7 @@ from torch.nn import functional as F
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
 from models.model_xoftr import ModelXoFTR
+from models.model_loftr import ModelLoFTR
 from models.model_match_anything import ModelMatchAnything
 from models.modules import DinoExtractor
 
@@ -119,6 +120,8 @@ if model_type == 'cvm_simple':
     CVM_model = CVM_Thermal_Simple(device, num_keypoints=num_keypoints, temperature=0.1, embed_dim=1024, desc_dim=128)
 elif model_type == 'xoftr':
     CVM_model = ModelXoFTR(device)
+elif model_type == 'loftr':
+    CVM_model = ModelLoFTR(device)
 elif model_type == 'match_anything':
     CVM_model = ModelMatchAnything(device)
 else:
@@ -215,10 +218,10 @@ with torch.no_grad():
             # )
             distance_loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
             distance_error.append(distance_loss.item())    
-        
-        elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
-            kpts1, kpts2 = CVM_model(img1, img2)
 
+            loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
+            val_error.append(loss.item())
+        elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
             B = img1.shape[0]
             # Compute pose error
             homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)
@@ -229,8 +232,11 @@ with torch.no_grad():
             rotation_errors = []
             translation_errors = []
             for batch_item in range(B):
-                E, mask = cv2.findEssentialMat(kpts1[batch_item], kpts2[batch_item], img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
-                _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[batch_item][mask], kpts2[batch_item][mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
+                kpts1, kpts2 = CVM_model(img1[batch_item], img2[batch_item])
+
+                E, mask = cv2.findEssentialMat(kpts1, kpts2, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
+                mask = mask.astype(bool).reshape(-1)
+                _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[mask], kpts2[mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
 
                 # compute error in pose
                 R_gt = c1Tc2[batch_item, :3, :3]
@@ -249,8 +255,6 @@ with torch.no_grad():
                 quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_np), ahrs.Quaternion(dcm=Rgt_np))
                 rotation_errors.append(quaternion_angle_diff)   
 
-            loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
-            val_error.append(loss.item())
             overall_rotation_errors.extend(rotation_errors)
             overall_translation_errors.extend(translation_errors)
     

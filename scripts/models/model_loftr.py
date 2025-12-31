@@ -13,10 +13,12 @@ class ModelLoFTR(nn.Module):
         self.matcher = KF.LoFTR(pretrained="outdoor")
 
     def forward(self, img1, img2):
+        print(img1.shape)
         input_dict = {
-            "image0": K.color.rgb_to_grayscale(img1),  # LofTR works on grayscale images only
-            "image1": K.color.rgb_to_grayscale(img2),
+            "image0": K.color.rgb_to_grayscale(img1).unsqueeze(0),  # LofTR works on grayscale images only
+            "image1": K.color.rgb_to_grayscale(img2).unsqueeze(0),
         }
+        print(input_dict['image0'].shape)
 
         with torch.inference_mode():
             correspondences = self.matcher(input_dict)
