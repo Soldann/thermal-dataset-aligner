@@ -33,8 +33,10 @@ class ModelXoFTR(nn.Module):
         # config['test']['img1_resize'] = 640 # resize the longer side, None for no resize
 
         # # The path for weights
-        # ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
-
+        ckpt = Path(__file__).parent.parent.parent / "XoFTR/notebooks/weights/weights_xoftr_640.ckpt"
+        ckpt_dict = torch.load(ckpt)
+        self.matcher.load_state_dict(ckpt_dict['state_dict'])
+        self.matcher = self.matcher.eval().to(device)
         # # Data I/O wrapper
         # self.matcher = DataIOWrapper(matcher, config=config["test"], ckpt=ckpt)
 
