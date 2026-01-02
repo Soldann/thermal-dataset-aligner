@@ -228,7 +228,7 @@ def warp_and_crop_to_valid_region(img, H):
 
     return cropped_resized
 
-def homography_error(img, H1, H2, method="frobenius", num_test_points=100):
+def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=None):
     """
     Compute error between two homography matrices.
 
@@ -237,6 +237,7 @@ def homography_error(img, H1, H2, method="frobenius", num_test_points=100):
         method (str): "frobenius" for matrix difference norm,
                       "projection" for point reprojection error.
         num_test_points (int): Number of points to sample for reprojection error (only for projection method).
+        img_shape (tuple): Shape of the image (height, width) for generating test points (only for projection method).
 
     Returns:
         float: Error value.
@@ -254,8 +255,8 @@ def homography_error(img, H1, H2, method="frobenius", num_test_points=100):
         return np.linalg.norm(H1 - H2, ord="fro")
 
     elif method == "projection":
-        xs = np.linspace(0, img.shape[1]-1, int(np.sqrt(num_test_points)))
-        ys = np.linspace(0, img.shape[0]-1, int(np.sqrt(num_test_points)))
+        xs = np.linspace(0, img_shape[1]-1, int(np.sqrt(num_test_points)))
+        ys = np.linspace(0, img_shape[0]-1, int(np.sqrt(num_test_points)))
         grid_x, grid_y = np.meshgrid(xs, ys)
         points = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
 
@@ -292,7 +293,8 @@ if not os.path.exists(results_dir):
 
 with torch.no_grad():
     CVM_model.eval()
-    val_error = []
+    frobenius_error = []
+    reprojection_error = []
 
     # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
     visualization_index = 0
@@ -308,8 +310,6 @@ with torch.no_grad():
         wTc2 = torch.cat([img2_inv_pose, homogenous_row], dim=1) # cam2 to world
         c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
         
-        rotation_errors = []
-        translation_errors = []
         for batch_item in range(B):
             h, w = img1.shape[2], img1.shape[3]
             H = generate_random_homography()
@@ -342,11 +342,17 @@ with torch.no_grad():
             H_pred, inlier_mask = cv2.findHomography(kpts1.cpu().numpy(), kpts2.cpu().numpy(), cv2.USAC_MAGSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
 
 
-            error = homography_error(H.cpu().numpy(), H_pred, method="frobenius")
-            val_error.append(error)
+            error = homography_error(H, H_pred, method="frobenius")
+            frobenius_error.append(error)
+            error = homography_error(H, H_pred, method="projection", img_shape=(h, w))
+            reprojection_error.append(error)
             
-    val_error_median = np.median(val_error)
-    val_error_mean = np.mean(val_error)
+    frobenius_error_median = np.median(frobenius_error)
+    frobenius_error_mean = np.mean(frobenius_error)
+    reprojection_error_median = np.median(reprojection_error)
+    reprojection_error_mean = np.mean(reprojection_error)
 
-    print(f'Mean Homography Error: {val_error_mean:.3f}')
-    print(f'Median Homography Error: {val_error_median:.3f}')
+    print(f'Mean Frobenius Homography Error: {frobenius_error_mean:.3f}')
+    print(f'Median Frobenius Homography Error: {frobenius_error_median:.3f}')
+    print(f'Mean Reprojection Homography Error: {reprojection_error_mean:.3f}')
+    print(f'Median Reprojection Homography Error: {reprojection_error_median:.3f}')
