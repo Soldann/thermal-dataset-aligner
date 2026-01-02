@@ -44,7 +44,7 @@ from models.model_loftr import ModelLoFTR
 from models.model_match_anything import ModelMatchAnything
 from models.modules import DinoExtractor
 
-from keypoint_patches import compute_patch_matches, visualize_patch_matches
+from keypoint_patches import compute_patch_matches, visualize_patch_matches, convert_patches_to_keypoints
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -174,89 +174,59 @@ with torch.no_grad():
         img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = data
 
         img1, img2, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device), img1_pose.to(device), img2_inv_pose.to(device), img1_K.to(device), img2_K.to(device)
-
-        if model_type == 'cvm_simple':
-            img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
-            matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
+            
+        B = img1.shape[0]
+        # Compute pose error
+        homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)
+        c1Tw = torch.cat([img1_pose, homogenous_row], dim=1) # world to cam1
+        wTc2 = torch.cat([img2_inv_pose, homogenous_row], dim=1) # cam2 to world
+        c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
         
-            # _, num_kpts_sat, num_kpts_grd = matching_score.shape
-            # patches_1, patches_2 = compute_patch_matches(kpts1.squeeze(0), kpts2.squeeze(0), img1.shape[2:], patch_size=14)
-            max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
-            
-            max_len = max(patches_1_len.max().item(), patches_2_len.max().item())
-            range_tensor = torch.arange(max_len).unsqueeze(0).to(device)  # shape (1, max_len)
-            patches_1_mask = range_tensor < patches_1_len.unsqueeze(1)  # shape (batch_size, max_len)
-            patches_2_mask = range_tensor < patches_2_len.unsqueeze(1)  # shape (batch_size, max_len)
-            max_num_keypoint_mask = torch.full_like(patches_1_mask, False).to(device)
-            max_num_keypoint_mask[:, :num_keypoints] = True
-            max_keypoints_mask = patches_1_mask & max_num_keypoint_mask & patches_2_mask
+        rotation_errors = []
+        translation_errors = []
+        for batch_item in range(B):
+            if model_type == 'cvm_simple':
+                img1_feature, img2_feature = shared_feature_extractor(img1[batch_item].unsqueeze(0)), shared_feature_extractor(img2[batch_item].unsqueeze(0))
+                matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
 
-            B = img1.shape[0]
-            batch_idx = torch.arange(B).unsqueeze(1).to(device)  # shape (B,1)
-            scores_img1 = matching_score[batch_idx, patches_2]   # (batch, number of gt matches, number of patch categories)
-            scores_img2 = matching_score.transpose(1,2)[batch_idx, patches_1]  # (batch, number of gt matches, number of patch categories)
-            
-            # if i >= 20:
-            #     for item_to_pick in range(B):
-            #         visualize_patch_matches(img1[item_to_pick].permute(1,2,0).cpu().numpy(), img2[item_to_pick].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[item_to_pick].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256)
+                # max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
+                    
+                # max_len = max(patches_1_len.max().item(), patches_2_len.max().item())
+                # range_tensor = torch.arange(max_len).unsqueeze(0).to(device)  # shape (1, max_len)
+                # patches_1_mask = range_tensor < patches_1_len.unsqueeze(1)  # shape (batch_size, max_len)
+                # patches_2_mask = range_tensor < patches_2_len.unsqueeze(1)  # shape (batch_size, max_len)
+                # max_num_keypoint_mask = torch.full_like(patches_1_mask, False).to(device)
+                # max_num_keypoint_mask[:, :num_keypoints] = True
+                # max_keypoints_mask = patches_1_mask & max_num_keypoint_mask & patches_2_mask
 
-            img1_loss = F.cross_entropy(
-                scores_img1[max_keypoints_mask],
-                patches_1[max_keypoints_mask]
-            )
-            # img1_topk_loss = F.cross_entropy(
-            #     matching_score.squeeze(0)[img1_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
-            #     patches_1.squeeze(0)[:max_keypoints_for_comparison].to(device)
-            # )
-            img2_loss = F.cross_entropy(
-                scores_img2[max_keypoints_mask],
-                patches_2[max_keypoints_mask]
-            )
-            # img2_topk_loss = F.cross_entropy(
-            #     matching_score.squeeze(0).transpose(1, 0)[img2_indices_topk.squeeze(0), :][:max_keypoints_for_comparison, :],
-            #     patches_2.squeeze(0)[:max_keypoints_for_comparison].to(device)
-            # )
-            distance_loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
-            distance_error.append(distance_loss.item())    
-
-            loss = img1_loss + img2_loss # + img1_topk_loss + img2_topk_loss
-            val_error.append(loss.item())
-        elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
-            B = img1.shape[0]
-            # Compute pose error
-            homogenous_row = torch.tensor([0,0,0,1], dtype=torch.float32).view(1,1,4).repeat(B,1,1).to(device)
-            c1Tw = torch.cat([img1_pose, homogenous_row], dim=1) # world to cam1
-            wTc2 = torch.cat([img2_inv_pose, homogenous_row], dim=1) # cam2 to world
-            c1Tc2 = torch.bmm(c1Tw, wTc2) # cam2 to cam1
-            
-            rotation_errors = []
-            translation_errors = []
-            for batch_item in range(B):
+                kpts1 = convert_patches_to_keypoints(img1_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:])
+                kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img2.shape[2:]) 
+            elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img2[batch_item])
 
-                E, mask = cv2.findEssentialMat(kpts1, kpts2, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
-                mask = mask.astype(bool).reshape(-1)
-                _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[mask], kpts2[mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
+            E, mask = cv2.findEssentialMat(kpts1, kpts2, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            mask = mask.astype(bool).reshape(-1)
+            _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[mask], kpts2[mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
 
-                # compute error in pose
-                R_gt = c1Tc2[batch_item, :3, :3]
-                t_gt = c1Tc2[batch_item, :3, 3]
+            # compute error in pose
+            R_gt = c1Tc2[batch_item, :3, :3]
+            t_gt = c1Tc2[batch_item, :3, 3]
 
-                # R_est = torch.tensor(R_est).to(device)
-                t_est = torch.tensor(t_est).to(device)
-                t_est = t_est / torch.norm(t_est) * torch.norm(t_gt) # set scale of the estimated translation to be the same as ground truth 
+            # R_est = torch.tensor(R_est).to(device)
+            t_est = torch.tensor(t_est).to(device)
+            t_est = t_est / torch.norm(t_est) * torch.norm(t_gt) # set scale of the estimated translation to be the same as ground truth 
 
-                # Compute translation error
-                translation_errors.extend(torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
+            # Compute translation error
+            translation_errors.extend(torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
 
-                # Compute yaw error
-                Rgt_np, R_np = R_gt.cpu().numpy(), R_est
+            # Compute yaw error
+            Rgt_np, R_np = R_gt.cpu().numpy(), R_est
 
-                quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_np), ahrs.Quaternion(dcm=Rgt_np))
-                rotation_errors.append(quaternion_angle_diff)   
+            quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_np), ahrs.Quaternion(dcm=Rgt_np))
+            rotation_errors.append(quaternion_angle_diff)   
 
-            overall_rotation_errors.extend(rotation_errors)
-            overall_translation_errors.extend(translation_errors)
+        overall_rotation_errors.extend(rotation_errors)
+        overall_translation_errors.extend(translation_errors)
     
     val_error_mean = np.mean(val_error)    
     val_error_median = np.median(val_error)
