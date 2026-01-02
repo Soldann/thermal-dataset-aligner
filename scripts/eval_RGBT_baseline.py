@@ -146,12 +146,6 @@ if epoch_to_resume > 0:
     print(f"Loaded checkpoint from {model_path} at global step {global_step}.")
     CVM_model.load_state_dict(state_dict)
     torch.set_rng_state(rng_state)
-    
-
-# Setup TensorBoard logging
-writer_dir = f'../tensorboard/{label}/'
-os.makedirs(writer_dir, exist_ok=True)
-writer = SummaryWriter(log_dir=writer_dir)
 
 # -------------------------
 # Training Loop
@@ -163,7 +157,6 @@ if not os.path.exists(results_dir):
 
 with torch.no_grad():
     CVM_model.eval()
-    distance_error = []
     val_error = []
     overall_rotation_errors = []
     overall_translation_errors = []
@@ -228,15 +221,11 @@ with torch.no_grad():
         overall_rotation_errors.extend(rotation_errors)
         overall_translation_errors.extend(translation_errors)
     
-    val_error_mean = np.mean(val_error)    
-    val_error_median = np.median(val_error)
     rotation_error_mean = np.mean(overall_rotation_errors)
     rotation_error_median = np.median(overall_rotation_errors)
     translation_error_mean = np.mean(overall_translation_errors)
     translation_error_median = np.median(overall_translation_errors)
 
-    print(f'📉 Mean Distance Error: {val_error_mean:.3f}')
-    print(f'📉 Median Distance Error: {val_error_median:.3f}')
     print(f'Mean Rotation Error: {rotation_error_mean:.3f}')
     print(f'Median Rotation Error: {rotation_error_median:.3f}')
     print(f'Mean Translation Error: {translation_error_mean:.3f}')
