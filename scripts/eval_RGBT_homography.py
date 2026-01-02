@@ -213,10 +213,10 @@ def warp_and_crop_to_valid_region(img, H):
     corners_h = corners_h.reshape(-1,2)
 
     # Bounding box of transformed corners
-    x_min = max(0, int(np.floor(corners_h[:,0].min())))
-    x_max = min(w, int(np.ceil(corners_h[:,0].max())))
-    y_min = max(0, int(np.floor(corners_h[:,1].min())))
-    y_max = min(h, int(np.ceil(corners_h[:,1].max())))
+    x_min = max(0, int(np.floor(max([corners_h[0,0], corners_h[3,0]]))))
+    x_max = min(w, int(np.ceil(min([corners_h[1,0], corners_h[2,0]]))))
+    y_min = max(0, int(np.floor(max([corners_h[0,1], corners_h[1,1]]))))
+    y_max = min(h, int(np.ceil(min([corners_h[2,1], corners_h[3,1]]))))
 
     # Warp full image
     warped = cv2.warpPerspective(img, H, (w, h))
@@ -224,9 +224,11 @@ def warp_and_crop_to_valid_region(img, H):
     # Crop valid region
     cropped = warped[y_min:y_max, x_min:x_max]
 
-    return cropped
+    cropped_resized = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
 
-def homography_error(H1, H2, method="frobenius", points=None):
+    return cropped_resized
+
+def homography_error(img, H1, H2, method="frobenius", num_test_points=100):
     """
     Compute error between two homography matrices.
 
@@ -234,7 +236,7 @@ def homography_error(H1, H2, method="frobenius", points=None):
         H1, H2 (np.ndarray): 3x3 homography matrices.
         method (str): "frobenius" for matrix difference norm,
                       "projection" for point reprojection error.
-        points (np.ndarray): Nx2 array of points (only for projection method).
+        num_test_points (int): Number of points to sample for reprojection error (only for projection method).
 
     Returns:
         float: Error value.
@@ -252,6 +254,11 @@ def homography_error(H1, H2, method="frobenius", points=None):
         return np.linalg.norm(H1 - H2, ord="fro")
 
     elif method == "projection":
+        xs = np.linspace(0, img.shape[1]-1, int(np.sqrt(num_test_points)))
+        ys = np.linspace(0, img.shape[0]-1, int(np.sqrt(num_test_points)))
+        grid_x, grid_y = np.meshgrid(xs, ys)
+        points = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
+
         if points is None:
             raise ValueError("Points must be provided for projection error.")
         if points.shape[1] != 2:
