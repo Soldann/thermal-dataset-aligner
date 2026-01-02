@@ -23,8 +23,8 @@ class ModelMatchAnything(nn.Module):
         self.matcher.eval()
     def forward(self, img1, img2):
         input_dict = {
-            "image0_rgb": img1,
-            "image1_rgb": img2,
+            "image0_rgb": img1.unsqueeze(0), # add back batch dimension
+            "image1_rgb": img2.unsqueeze(0),
         }
 
         with torch.inference_mode():
