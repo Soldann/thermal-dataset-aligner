@@ -192,8 +192,8 @@ with torch.no_grad():
                 # max_num_keypoint_mask[:, :num_keypoints] = True
                 # max_keypoints_mask = patches_1_mask & max_num_keypoint_mask & patches_2_mask
 
-                kpts1 = convert_patches_to_keypoints(img1_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:])
-                kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img2.shape[2:]) 
+                kpts1 = convert_patches_to_keypoints(img1_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:]).cpu().numpy()
+                kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img2.shape[2:]).cpu().numpy()
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img2[batch_item])
 
