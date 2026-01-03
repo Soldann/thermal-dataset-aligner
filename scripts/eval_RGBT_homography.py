@@ -224,9 +224,7 @@ def warp_and_crop_to_valid_region(img, H):
     # Crop valid region
     cropped = warped[y_min:y_max, x_min:x_max]
 
-    cropped_resized = cv2.resize(cropped, (w, h), interpolation=cv2.INTER_LINEAR)
-
-    return cropped_resized
+    return cropped
 
 def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=None):
     """
@@ -257,7 +255,7 @@ def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=
     elif method == "projection":
         xs = np.linspace(0, img_shape[1]-1, int(np.sqrt(num_test_points)))
         ys = np.linspace(0, img_shape[0]-1, int(np.sqrt(num_test_points)))
-        grid_x, grid_y = np.meshgrid(xs, ys)
+        grid_x, grid_y = np.meshgrid(xs, ys, indexing="ij")
         points = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
 
         if points is None:
@@ -316,9 +314,10 @@ with torch.no_grad():
             # Scale translation to image size
             H[0,2] *= w
             H[1,2] *= h
-            warped = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H, (w, h))
+            warped = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H)
+            print(warped.shape)
             img1_warped = cv2.resize(warped, (w, h), interpolation=cv2.INTER_LINEAR)
-            img1_warped = torch.from_numpy(img1_warped).permute(2, 0, 1).unsqueeze(0).to(device)
+            img1_warped = torch.from_numpy(img1_warped).permute(2, 0, 1).to(device)
 
             if model_type == 'cvm_simple':
                 img1_feature, img2_feature = shared_feature_extractor(img1[batch_item].unsqueeze(0)), shared_feature_extractor(img1_warped)
@@ -334,12 +333,12 @@ with torch.no_grad():
                 # max_num_keypoint_mask[:, :num_keypoints] = True
                 # max_keypoints_mask = patches_1_mask & max_num_keypoint_mask & patches_2_mask
 
-                kpts1 = convert_patches_to_keypoints(img1_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:])
-                kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:]) 
+                kpts1 = convert_patches_to_keypoints(img1_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:]).cpu().numpy()
+                kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img1.shape[2:]).cpu().numpy()
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
-                kpts1, kpts2 = CVM_model(img1[batch_item], img1_warped)
+                kpts1, kpts2 = CVM_model(img1[batch_item], img1_warped.squeeze(0))
 
-            H_pred, inlier_mask = cv2.findHomography(kpts1.cpu().numpy(), kpts2.cpu().numpy(), cv2.USAC_MAGSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
+            H_pred, inlier_mask = cv2.findHomography(kpts1, kpts2, cv2.USAC_MAGSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
 
 
             error = homography_error(H, H_pred, method="frobenius")
