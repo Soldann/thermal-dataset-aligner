@@ -12,6 +12,7 @@ parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume 
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='xoftr')
+parser.add_argument('--debug', action='store_true', help='enable debug mode for visualizations')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -20,6 +21,7 @@ beta = args['beta']
 epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
 model_type = args['model_type']
+debug = args['debug']
 
 # Load configuration
 import configparser
@@ -30,12 +32,13 @@ import torch
 import numpy as np
 import random
 import cv2
-import ahrs
 from dataloaders.dataloader_RGBT_Scenes import RGBT_Scenes_Dataset, random_split
 from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn import functional as F
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
@@ -45,6 +48,7 @@ from models.model_match_anything import ModelMatchAnything
 from models.modules import DinoExtractor
 
 from keypoint_patches import compute_patch_matches, visualize_patch_matches, convert_patches_to_keypoints
+from xoftr.utils.plotting import make_matching_figure
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -147,7 +151,7 @@ if epoch_to_resume > 0:
     CVM_model.load_state_dict(state_dict)
     torch.set_rng_state(rng_state)
 
-def generate_random_homography(max_rotation=20, max_translation=0.2, max_scale=0.2, max_shear=0.2, max_perspective=0.001):
+def generate_random_homography(max_rotation=10, max_translation=0.1, max_scale=0.05, max_shear=0.02, max_perspective=0.001):
 
     # Convert degrees to radians
     rot = np.deg2rad(np.random.uniform(-max_rotation, max_rotation))
@@ -224,7 +228,7 @@ def warp_and_crop_to_valid_region(img, H):
     # Crop valid region
     cropped = warped[y_min:y_max, x_min:x_max]
 
-    return cropped
+    return cropped, corners_h
 
 def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=None):
     """
@@ -314,13 +318,34 @@ with torch.no_grad():
             # Scale translation to image size
             H[0,2] *= w
             H[1,2] *= h
-            warped = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H)
-            print(warped.shape)
+            warped, corners_h = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H)
+
+            if debug:
+                if warped is None:
+                    print("Failed to warp image, defaulting")
+                    warped = cv2.warpPerspective(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H, (w, h))
+                print(H)
+                print("displaying")
+                plt.subplot(1, 3, 1)
+                plt.title("Original Image")
+                plt.imshow(img1[batch_item].permute(1, 2, 0).cpu().numpy())
+                plt.axis("off")
+                plt.subplot(1, 3, 2)
+                plt.title("Warped and Cropped")
+                plt.imshow(warped)
+                # plt.scatter(corners_h[:,0], corners_h[:,1], c='r', s=5)
+                plt.axis("off")
+                plt.subplot(1, 3, 3)
+                plt.title("Warped Full Image")
+                plt.imshow(warped)
+                plt.axis("off")
+                plt.show()
+
             img1_warped = cv2.resize(warped, (w, h), interpolation=cv2.INTER_LINEAR)
             img1_warped = torch.from_numpy(img1_warped).permute(2, 0, 1).to(device)
 
             if model_type == 'cvm_simple':
-                img1_feature, img2_feature = shared_feature_extractor(img1[batch_item].unsqueeze(0)), shared_feature_extractor(img1_warped)
+                img1_feature, img2_feature = shared_feature_extractor(img1[batch_item].unsqueeze(0)), shared_feature_extractor(img1_warped.unsqueeze(0))
                 matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
 
                 # max_keypoints_for_comparison = min(num_keypoints, patches_1.shape[0], patches_2.shape[0])
@@ -338,8 +363,21 @@ with torch.no_grad():
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img1_warped.squeeze(0))
 
+            if debug:
+                color = cm.jet(np.linspace(0, 1, len(kpts1)))
+                make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1[:256],  kpts2[:256],  color[:256], text=["Original"], dpi=125)
+                plt.show()
+            if len(kpts1) < 4 or len(kpts2) < 4:
+                print("Not enough keypoints detected, skipping this sample.")
+                # from matplotlib import cm
+                # color = cm.jet(np.linspace(0, 1, len(kpts1)))
+                # make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1,  kpts2,  color, text=["Original"], dpi=125)
+                # plt.show()
+                continue
             H_pred, inlier_mask = cv2.findHomography(kpts1, kpts2, cv2.USAC_MAGSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
-
+            if H_pred is None:
+                print("Homography could not be computed, skipping this sample.")
+                continue
 
             error = homography_error(H, H_pred, method="frobenius")
             frobenius_error.append(error)
