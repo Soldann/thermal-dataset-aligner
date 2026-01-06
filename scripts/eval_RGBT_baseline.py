@@ -12,6 +12,7 @@ parser.add_argument('--epoch_to_resume', type=int, help='epoch number to resume 
 parser.add_argument('--name', type=str, help='name of the experiment', default='')
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='xoftr')
+parser.add_argument('--debug', action='store_true', help='enable debug mode for visualizations')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -20,6 +21,7 @@ beta = args['beta']
 epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
 model_type = args['model_type']
+debug_mode = args['debug']
 
 # Load configuration
 import configparser
@@ -36,6 +38,8 @@ from torch.utils.data import DataLoader, Subset
 import torch.nn as nn
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn import functional as F
+import matplotlib.pyplot as plt
+from matplotlib import cm
 
 from models.model_RGBT import CVM_Thermal
 from models.model_RGBT_simple import CVM_Thermal_Simple
@@ -43,6 +47,8 @@ from models.model_xoftr import ModelXoFTR
 from models.model_loftr import ModelLoFTR
 from models.model_match_anything import ModelMatchAnything
 from models.modules import DinoExtractor
+from utils.visualizer import visualize_pose_and_points
+from xoftr.utils.plotting import make_matching_figure
 
 from keypoint_patches import compute_patch_matches, visualize_patch_matches, convert_patches_to_keypoints
 
@@ -197,9 +203,9 @@ with torch.no_grad():
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img2[batch_item])
 
-            E, mask = cv2.findEssentialMat(kpts1, kpts2, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
+            E, mask = cv2.findEssentialMat(kpts2, kpts1, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
             mask = mask.astype(bool).reshape(-1)
-            _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts1[mask], kpts2[mask], cameraMatrix=img1_K[batch_item].cpu().numpy())
+            _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts2[mask], kpts1[mask], cameraMatrix=img1_K[batch_item].cpu().numpy()) # recover pose c1Tc2
 
             # compute error in pose
             R_gt = c1Tc2[batch_item, :3, :3]
@@ -216,7 +222,28 @@ with torch.no_grad():
             Rgt_np, R_np = R_gt.cpu().numpy(), R_est
 
             quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_np), ahrs.Quaternion(dcm=Rgt_np))
-            rotation_errors.append(quaternion_angle_diff)   
+            rotation_errors.append(quaternion_angle_diff)
+
+            if debug_mode:
+                print("Translation Error (L2 norm): ", translation_errors[-1])
+                print("Rotation Error (degrees): ", rotation_errors[-1])
+
+                if model_type == 'cvm_simple':
+                    visualize_patch_matches(img1[batch_item].permute(1,2,0).cpu().numpy(), img2[batch_item].permute(1,2,0).cpu().numpy(), list(zip(img1_indices_topk[batch_item].reshape(num_keypoints,).cpu().numpy(), img2_indices_topk[batch_item].reshape(num_keypoints,).cpu().numpy())), patch_size=14, patches_to_draw=256)
+                else:
+                    color = cm.jet(np.linspace(0, 1, len(kpts1)))
+                    make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img2[batch_item].permute(1,2,0).cpu().numpy(), kpts1[:256],  kpts2[:256],  color[:256], text=["Original"], dpi=125)
+                    plt.show()
+                visualize_pose_and_points(
+                    kpts1=kpts1.astype(np.float32),
+                    kpts2=kpts2.astype(np.float32),
+                    mask=mask,
+                    K=img1_K[batch_item].cpu().numpy().astype(np.float32),
+                    R_gt=Rgt_np.astype(np.float32),
+                    R_est=R_np.astype(np.float32),
+                    t_gt=t_gt.cpu().numpy().astype(np.float32),
+                    t_est=t_est.cpu().numpy().astype(np.float32)
+                )
 
         overall_rotation_errors.extend(rotation_errors)
         overall_translation_errors.extend(translation_errors)
