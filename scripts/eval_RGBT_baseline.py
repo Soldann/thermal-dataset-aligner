@@ -212,11 +212,11 @@ with torch.no_grad():
             t_gt = c1Tc2[batch_item, :3, 3]
 
             # R_est = torch.tensor(R_est).to(device)
-            t_est = torch.tensor(t_est).to(device)
+            t_est = torch.tensor(t_est).to(device).reshape(3,)
             t_est = t_est / torch.norm(t_est) * torch.norm(t_gt) # set scale of the estimated translation to be the same as ground truth 
 
             # Compute translation error
-            translation_errors.extend(torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
+            translation_errors.append(torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
 
             # Compute yaw error
             Rgt_np, R_np = R_gt.cpu().numpy(), R_est
@@ -225,6 +225,10 @@ with torch.no_grad():
             rotation_errors.append(quaternion_angle_diff)
 
             if debug_mode:
+                print("Ground Truth Pose:\n", c1Tc2[batch_item].cpu().numpy())
+                print("Estimated Pose:\n", np.vstack((np.hstack((R_est, t_est.cpu().numpy().reshape(3,1))), np.array([0,0,0,1]))))
+                print("My thing", torch.norm(t_est - t_gt, dim=-1).cpu().numpy())
+                torch.save((c1Tc2[batch_item], t_gt, t_est), 'temp_pose.pt')
                 print("Translation Error (L2 norm): ", translation_errors[-1])
                 print("Rotation Error (degrees): ", rotation_errors[-1])
 
