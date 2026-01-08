@@ -213,7 +213,7 @@ with torch.no_grad():
 
             E, mask = cv2.findEssentialMat(kpts2, kpts1, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
             mask = mask.astype(bool).reshape(-1)
-            _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts2[mask], kpts1[mask], cameraMatrix=img1_K[batch_item].cpu().numpy()) # recover pose c1Tc2
+            _, R_est, t_est, mask_pose = cv2.recoverPose(E, kpts2[mask], kpts1[mask], cameraMatrix=img1_K[batch_item].cpu().numpy()) # Put kpts2 first to recover pose c1Tc2
 
             # compute error in pose
             R_gt = c1Tc2[batch_item, :3, :3]
