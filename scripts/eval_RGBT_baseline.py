@@ -13,6 +13,7 @@ parser.add_argument('--name', type=str, help='name of the experiment', default='
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='xoftr')
 parser.add_argument('--debug', action='store_true', help='enable debug mode for visualizations')
+parser.add_argument('--patch_matching', action='store_true', help='use patch matching instead of keypoint matching')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -22,6 +23,7 @@ epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
 model_type = args['model_type']
 debug_mode = args['debug']
+patch_matching = args['patch_matching']
 
 # Load configuration
 import configparser
@@ -202,6 +204,12 @@ with torch.no_grad():
                 kpts2 = convert_patches_to_keypoints(img2_indices_topk.squeeze(0).reshape(num_keypoints,), img2.shape[2:]).cpu().numpy()
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img2[batch_item])
+
+                if patch_matching:
+                    # Compute patch matches
+                    matches = compute_patch_matches(kpts1, kpts2, img1.shape[2:], patch_size=14)
+                    kpts1 = convert_patches_to_keypoints(matches[0], img1.shape[2:], patch_size=14).cpu().numpy()
+                    kpts2 = convert_patches_to_keypoints(matches[1], img2.shape[2:], patch_size=14).cpu().numpy()
 
             E, mask = cv2.findEssentialMat(kpts2, kpts1, img1_K[batch_item].cpu().numpy(), method=cv2.RANSAC, prob=0.999, threshold=1.0)
             mask = mask.astype(bool).reshape(-1)
