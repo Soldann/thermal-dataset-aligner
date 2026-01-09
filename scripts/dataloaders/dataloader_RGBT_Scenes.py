@@ -79,7 +79,7 @@ class RGBT_Scenes_Dataset(Dataset):
     def __init__(self, root: Path, thermal_images, rgb_images, window_size=10, low_memory_mode=False, image_mode=ImagePairMode.thermal_to_thermal):
         self.keypoint_cache_path: Path = Path(root) / 'keypoint_cache' / image_mode.value
         colmap_path = Path(root) / 'colmap' / 'sparse' / '0'
-        self.colmap_images = pycolmap.Reconstruction(colmap_path).images
+        self.colmap = pycolmap.Reconstruction(colmap_path)
         self.data_correspondencer = None
 
         self.thermal_images = thermal_images
@@ -93,9 +93,9 @@ class RGBT_Scenes_Dataset(Dataset):
         self.image_pair_indexes = []
         digit_pattern = r'\d+'
         for i in range(len(self.thermal_images)):
-            dataset_image1_num = int(re.search(digit_pattern, self.thermal_images[i].stem).group())
+            dataset_image1_num = self.colmap.find_image_with_name(self.thermal_images[i].stem + self.thermal_images[i].suffix).image_id
             for j in range(i+1, min(i + window_size, len(self.thermal_images))):
-                dataset_image2_num = int(re.search(digit_pattern, self.thermal_images[j].stem).group())
+                dataset_image2_num = self.colmap.find_image_with_name(self.thermal_images[j].stem + self.thermal_images[j].suffix).image_id
                 if abs(dataset_image1_num - dataset_image2_num) < window_size:
                     self.image_pairs.append((self.thermal_images[i].stem, self.thermal_images[j].stem))
                     self.image_numbers.append((dataset_image1_num, dataset_image2_num))
@@ -188,10 +188,10 @@ class RGBT_Scenes_Dataset(Dataset):
         image1, image2 = self.image_pairs[idx]
         image1_num, image2_num = self.image_numbers[idx]
         img1_list, img2_list, kpts1_list, kpts2_list, conf_list, patches_1, patches_2 = torch.load(self.keypoint_cache_path / f"{image1}_{image2}_keypoints.pt", map_location='cpu')
-        img1_pose = torch.tensor(self.colmap_images[image1_num].cam_from_world().matrix())
-        img1_K = torch.tensor(self.colmap_images[image1_num].camera.calibration_matrix())
-        img2_inv_pose = torch.tensor(self.colmap_images[image2_num].cam_from_world().inverse().matrix())
-        img2_K = torch.tensor(self.colmap_images[image2_num].camera.calibration_matrix())
+        img1_pose = torch.tensor(self.colmap.images[image1_num].cam_from_world().matrix())
+        img1_K = torch.tensor(self.colmap.images[image1_num].camera.calibration_matrix())
+        img2_inv_pose = torch.tensor(self.colmap.images[image2_num].cam_from_world().inverse().matrix())
+        img2_K = torch.tensor(self.colmap.images[image2_num].camera.calibration_matrix())
         # print("loaded data for image pair:", image1, image2)
         return img1_list[0], img2_list[0], conf_list[0], patches_1[0], patches_2[0], patches_1[0].shape[0], patches_2[0].shape[0], img1_pose, img2_inv_pose, img1_K, img2_K
 
