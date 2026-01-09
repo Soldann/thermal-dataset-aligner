@@ -103,7 +103,7 @@ train_data, val_data = RGBT_Scenes_Dataset.build_test_train_dataloaders(dataset_
 print(len(train_data), 'training samples found.')
 print(len(val_data), 'validation samples found.')
 
-train_dataloader = DataLoader(train_data, batch_size=1, shuffle=True, num_workers=4, collate_fn=train_data.collate_fn)
+# train_dataloader = DataLoader(train_data, batch_size=1, shuffle=True, num_workers=4, collate_fn=train_data.collate_fn)
 val_dataloader = DataLoader(val_data, batch_size=1, shuffle=False, num_workers=4, collate_fn=val_data.collate_fn)
 # val_dataloader = DataLoader(val_data, batch_size=batch_size, shuffle=False, num_workers=4)
 # test_dataloader = DataLoader(test_set, batch_size=batch_size, shuffle=False, num_workers=4)
