@@ -13,6 +13,7 @@ parser.add_argument('--name', type=str, help='name of the experiment', default='
 parser.add_argument('--training_ratio', type=float, help='ratio to split training and validation data', default=0.7)
 parser.add_argument('--model_type', type=str, help='type of model to use: xoftr or cvm_simple', default='xoftr')
 parser.add_argument('--debug', action='store_true', help='enable debug mode for visualizations')
+parser.add_argument('--patch_matching', action='store_true', help='use patch matching instead of keypoint matching')
 
 args = vars(parser.parse_args())
 machine = args['machine']
@@ -22,6 +23,7 @@ epoch_to_resume = args['epoch_to_resume']
 experiment_name = args['name']
 model_type = args['model_type']
 debug = args['debug']
+patch_matching = args['patch_matching']
 
 # Load configuration
 import configparser
@@ -279,6 +281,7 @@ def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=
         proj2 /= proj2[:, [2]]
 
         # Mean Euclidean distance between projections
+        print(proj1.shape, proj2.shape)
         return np.mean(np.linalg.norm(proj1[:, :2] - proj2[:, :2], axis=1))
 
     else:
@@ -318,7 +321,8 @@ with torch.no_grad():
             # Scale translation to image size
             H[0,2] *= w
             H[1,2] *= h
-            warped, corners_h = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H)
+            # warped, corners_h = warp_and_crop_to_valid_region(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H)
+            warped = cv2.warpPerspective(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H, (w, h))
 
             if debug:
                 if warped is None:
@@ -363,6 +367,12 @@ with torch.no_grad():
             elif model_type == 'xoftr' or model_type == 'loftr' or model_type == 'match_anything':
                 kpts1, kpts2 = CVM_model(img1[batch_item], img1_warped.squeeze(0))
 
+                if patch_matching:
+                    # Compute patch matches
+                    matches = compute_patch_matches(kpts1, kpts2, img1.shape[2:], patch_size=14)
+                    kpts1 = convert_patches_to_keypoints(matches[0], img1.shape[2:], patch_size=14).cpu().numpy()
+                    kpts2 = convert_patches_to_keypoints(matches[1], img2.shape[2:], patch_size=14).cpu().numpy()
+
             if debug:
                 color = cm.jet(np.linspace(0, 1, len(kpts1)))
                 make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1[:256],  kpts2[:256],  color[:256], text=["Original"], dpi=125)
@@ -379,11 +389,28 @@ with torch.no_grad():
                 print("Homography could not be computed, skipping this sample.")
                 continue
 
-            error = homography_error(H, H_pred, method="frobenius")
-            frobenius_error.append(error)
-            error = homography_error(H, H_pred, method="projection", img_shape=(h, w))
-            reprojection_error.append(error)
-            
+            frob_error = homography_error(H, H_pred, method="frobenius")
+            frobenius_error.append(frob_error)
+            proj_error = homography_error(H, H_pred, method="projection", img_shape=(h, w))
+            reprojection_error.append(proj_error)
+
+            if debug:
+                print(f"Frobenius Error = {frob_error:.3f}, Reprojection Error = {proj_error:.3f}")
+
+                plt.subplot(1, 3, 1)
+                plt.title("Original Image")
+                plt.imshow(img1[batch_item].permute(1, 2, 0).cpu().numpy())
+                plt.axis("off")
+                plt.subplot(1, 3, 2)
+                plt.title("Warped Image")
+                plt.imshow(cv2.warpPerspective(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H, (w, h)))
+                plt.axis("off")
+                plt.subplot(1, 3, 3)
+                plt.title("Estimated Homography Warp")
+                plt.imshow(cv2.warpPerspective(img1[batch_item].permute(1, 2, 0).cpu().numpy(), H_pred, (w, h)))
+                plt.axis("off")
+                plt.show()
+
     frobenius_error_median = np.median(frobenius_error)
     frobenius_error_mean = np.mean(frobenius_error)
     reprojection_error_median = np.median(reprojection_error)
