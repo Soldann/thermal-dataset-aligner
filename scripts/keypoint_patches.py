@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from collections import Counter
 import torch
 
-def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(0, 255, 0), patches_to_draw=10, headless=False):
+def visualize_patch_matches(img1, img2, matches, patch_size=14, color=(255, 0, 0), patches_to_draw=10, headless=False):
     # Resize images to same height
     h1, w1 = img1.shape[:2]
     h2, w2 = img2.shape[:2]
