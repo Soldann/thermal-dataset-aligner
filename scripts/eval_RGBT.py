@@ -160,10 +160,10 @@ with torch.no_grad():
     # visualization_index = torch.randint(0, len(val_dataloader), (1,)).item()
     visualization_index = 0
     for i, data in enumerate(val_dataloader, 0):
-        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len = data
+        img1, img2, conf, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = data
 
-        img1, img2, patches_1, patches_2, patches_1_len, patches_2_len = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device)
-
+        img1, img2, patches_1, patches_2, patches_1_len, patches_2_len, img1_pose, img2_inv_pose, img1_K, img2_K = img1.to(device), img2.to(device), patches_1.long().to(device), patches_2.long().to(device), patches_1_len.to(device), patches_2_len.to(device), img1_pose.to(device), img2_inv_pose.to(device), img1_K.to(device), img2_K.to(device)
+            
         img1_feature, img2_feature = shared_feature_extractor(img1), shared_feature_extractor(img2)
 
         matching_score, img2_indices_topk, img1_indices_topk, matching_score_original = CVM_model(img1_feature, img2_feature)
