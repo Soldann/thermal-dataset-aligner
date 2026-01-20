@@ -232,7 +232,7 @@ def warp_and_crop_to_valid_region(img, H):
 
     return cropped, corners_h
 
-def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=None):
+def homography_error(H1, H2, method="frobenius", num_test_points=100, img=None, debug=False):
     """
     Compute error between two homography matrices.
 
@@ -241,7 +241,8 @@ def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=
         method (str): "frobenius" for matrix difference norm,
                       "projection" for point reprojection error.
         num_test_points (int): Number of points to sample for reprojection error (only for projection method).
-        img_shape (tuple): Shape of the image (height, width) for generating test points (only for projection method).
+        img (np.ndarray): Image array for generating test points (only for projection method).
+        debug (bool): If True, displays a visualization of point projections (only for projection method).
 
     Returns:
         float: Error value.
@@ -259,8 +260,8 @@ def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=
         return np.linalg.norm(H1 - H2, ord="fro")
 
     elif method == "projection":
-        xs = np.linspace(0, img_shape[1]-1, int(np.sqrt(num_test_points)))
-        ys = np.linspace(0, img_shape[0]-1, int(np.sqrt(num_test_points)))
+        xs = np.linspace(0, img.shape[1]-1, int(np.sqrt(num_test_points)))
+        ys = np.linspace(0, img.shape[0]-1, int(np.sqrt(num_test_points)))
         grid_x, grid_y = np.meshgrid(xs, ys, indexing="ij")
         points = np.vstack([grid_x.ravel(), grid_y.ravel()]).T
 
@@ -279,6 +280,32 @@ def homography_error(H1, H2, method="frobenius", num_test_points=100, img_shape=
         # Normalize back to Cartesian coordinates
         proj1 /= proj1[:, [2]]
         proj2 /= proj2[:, [2]]
+
+        if debug:
+            plt.subplot(2, 2, 1)
+            plt.imshow(img)
+            plt.title("Original Image with Test Points")
+            plt.scatter(points[:,0], points[:,1], c='y', s=5)
+            plt.axis("off")
+            plt.subplot(2, 2, 2)
+            plt.title("Transformed Points by H1")
+            plt.imshow(cv2.warpPerspective(img, H1, (img.shape[1], img.shape[0])))
+            plt.scatter(proj1[:,0], proj1[:,1], c='r', s=5)
+            plt.axis("off")
+            plt.subplot(2, 2, 3)
+            plt.title("Transformed Points by H2")
+            plt.imshow(cv2.warpPerspective(img, H2, (img.shape[1], img.shape[0])))
+            plt.scatter(proj2[:,0], proj2[:,1], c='g', s=5)
+            plt.axis("off")
+            plt.subplot(2, 2, 4)
+            plt.title("Comparison of Projections")
+            plt.scatter(proj1[:,0], proj1[:,1], c='r', label='H1 Projections', s=5)
+            plt.scatter(proj2[:,0], proj2[:,1], c='g', label='H2 Projections', s=5)
+            for i in range(proj1.shape[0]):
+                plt.plot([proj1[i,0], proj2[i,0]], [proj1[i,1], proj2[i,1]], 'b-', linewidth=0.5)
+            plt.legend()
+            plt.axis("off")
+            plt.show()
 
         # Mean Euclidean distance between projections
         print(proj1.shape, proj2.shape)
@@ -375,7 +402,7 @@ with torch.no_grad():
 
             if debug:
                 color = cm.jet(np.linspace(0, 1, len(kpts1)))
-                make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1[:256],  kpts2[:256],  color[:256], text=["Original"], dpi=125)
+                make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1[:50],  kpts2[:50],  color[:50], text=["Original"], dpi=125)
                 plt.show()
             if len(kpts1) < 4 or len(kpts2) < 4:
                 print("Not enough keypoints detected, skipping this sample.")
@@ -384,14 +411,14 @@ with torch.no_grad():
                 # make_matching_figure(img1[batch_item].permute(1,2,0).cpu().numpy(), img1_warped.permute(1,2,0).cpu().numpy(), kpts1,  kpts2,  color, text=["Original"], dpi=125)
                 # plt.show()
                 continue
-            H_pred, inlier_mask = cv2.findHomography(kpts1, kpts2, cv2.USAC_MAGSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
+            H_pred, inlier_mask = cv2.findHomography(kpts1, kpts2, cv2.RANSAC, ransacReprojThreshold=1, maxIters=10000, confidence=0.9999)
             if H_pred is None:
                 print("Homography could not be computed, skipping this sample.")
                 continue
 
             frob_error = homography_error(H, H_pred, method="frobenius")
             frobenius_error.append(frob_error)
-            proj_error = homography_error(H, H_pred, method="projection", img_shape=(h, w))
+            proj_error = homography_error(H, H_pred, method="projection", img=img1[batch_item].permute(1, 2, 0).cpu().numpy(), debug=debug)
             reprojection_error.append(proj_error)
 
             if debug:
