@@ -22,6 +22,7 @@ from tyro.conf import Positional
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 from typing_extensions import Annotated
+import json
 
 def visualize_points_3d(points_xyz, figsize=(8, 8), elev=20, azim=-60):
     """
@@ -68,11 +69,12 @@ def find_keypoints_vectorized(kdtree, coords, uv_array, max_dist=3.0):
     mask = dists <= max_dist
     return idxs, mask
 
+@dataclass
 class NerfstudioTransformWriter:
     """Converter for TartanAir/Ground dataset to NerfStudio format."""
     
-    base_path: Positional[List[Path]]  # <-- Accept string for glob pattern
-    """Path to the base folder(s) of the TartanAir/Ground dataset. Can be a glob pattern."""
+    base_path: Positional[Path]
+    """Path to the base folder of the dataset."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
     """Limit the number of poses to convert."""
@@ -81,10 +83,17 @@ class NerfstudioTransformWriter:
     output_path: Annotated[Optional[Path], tyro.conf.arg(aliases=["-o"])] = None
     """Path to the output transforms.json file. If None, it will be saved in the base path."""
 
+    save_ground_truth_poses: Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
+    """If True, save the ground truth poses from COLMAP into the transforms.json file instead of the estimated ones."""
+
+    print_estimation_errors: Annotated[bool, tyro.conf.arg(aliases=["-e"])] = False
+    """If True, print the translation and rotation estimation errors compared to COLMAP poses."""
+
     _current_dir: Path = field(default_factory=lambda: Path().absolute(), init=False)
     def write_transforms(self, intrinsics, poses):
         """
         Write the transforms.json file.
+        :param intrinsics: Dictionary of camera intrinsics. Should include keys "camera_model", "fl_x", "fl_y", "cx", "cy", "w", "h".
         :param poses: List of poses to write.
         :return:
         """
@@ -93,159 +102,137 @@ class NerfstudioTransformWriter:
         transforms = intrinsics.copy()
         transforms["frames"] = []
 
-        for pose in poses:
-            image_folder_name = f"undist_images"
-            depth_folder_name = f"depths"
+        for frame in poses:
+            transforms["frames"].append(frame)
 
-            images_folder = self._current_dir / image_folder_name
-            images = [i for i in os.listdir(images_folder) if i.endswith((".png", ".jpg", ".jpeg"))]
-            images = sorted(images, key=lambda x: int(''.join(filter(str.isdigit, os.path.splitext(x)[0]))))
-
-            if self.pose_limit is not None:
-                single_limit = self.pose_limit // len(poses)
-                if self.uniform:
-                    distribution = len(images) // single_limit
-                    images = images[::distribution]
-                else:
-                    images = images[:single_limit]
-
-            if len(images) != len(pose["camera_poses"]):
-                raise ValueError(f"Number of images ({len(images)}) does not match the number of poses ({len(pose['camera_poses'])})")
-
-            if pose['has_depth']:
-                depth_folder = self._current_dir / depth_folder_name
-                depth_images = [i for i in os.listdir(depth_folder) if (i.endswith((".npy", ".png", ".jpg", ".jpeg", ".pfm")) and not i.endswith("_converted.npy"))]
-                depth_images = sorted(depth_images, key=lambda x: int(''.join(filter(str.isdigit, os.path.splitext(x)[0]))))
-
-                if self.pose_limit is not None:
-                    single_limit = self.pose_limit // len(poses)
-                    if self.uniform:
-                        distribution = len(depth_images) // single_limit
-                        depth_images = depth_images[::distribution]
-                    else:
-                        depth_images = depth_images[:single_limit]
-
-                if len(depth_images) != len(pose["camera_poses"]):
-                    raise ValueError(f"Number of depth images ({len(depth_images)}) does not match the number of poses ({len(pose['camera_poses'])})")
-
-            for i, nerf_pose in enumerate(pose['camera_poses']):
-                frame = {
-                    "file_path": f"{image_folder_name}/{images[i]}",
-                    "transform_matrix": nerf_pose.tolist()
-                }
-
-                if pose['has_depth']:
-                    depth_file = f"{depth_folder_name}/{depth_images[i]}"
-                    if self.depth_conversion:
-                        converted_file = self.convert_depth_image(self._current_dir / depth_file)
-                        frame["depth_file_path"] = f"{depth_folder_name}/{converted_file}"
-                    else:
-                        frame["depth_file_path"] = depth_file
-
-                transforms["frames"].append(frame)
-
-        with open(self._output_path, "w") as f:
+        with open(self.output_path, "w") as f:
             json.dump(transforms, f, indent=4)
-            print(f'Transforms file written to {self._output_path}')
+            print(f'Transforms file written to {self.output_path}')
 
-def main():
-    # Load the COLMAP model
-    model_path = "/home/landson/RGBT-Scenes/Building/colmap/sparse/0/"  # Update this path to your COLMAP model directory
-    model = pycolmap.Reconstruction(model_path)
+    def main(self):
+        if self.output_path is None:
+            self.output_path = self.base_path / "transforms.json"
 
-    points = np.zeros((len(model.points3D), 3))
-    # Extract camera poses
-    for i, (point3D_id, point3D) in enumerate(model.points3D.items()):
-        points[i] = point3D.xyz
+        # Load the COLMAP model
+        model_path = self.base_path / "colmap" / "sparse" / "0"
+        model = pycolmap.Reconstruction(model_path)
 
-    # print("3D Points from COLMAP:")
-    # visualize_points_3d(points)
+        points = np.zeros((len(model.points3D), 3))
+        # Extract camera poses
+        for i, (point3D_id, point3D) in enumerate(model.points3D.items()):
+            points[i] = point3D.xyz
 
-    data_correspondencer = None
-    thermal_images: List[Path] = [Path(p) for p in glob.glob("/home/landson/RGBT-Scenes/Building/thermal/**/*.jpg")]
-    thermal_images.sort()  # Ensure consistent order
+        # print("3D Points from COLMAP:")
+        # visualize_points_3d(points)
 
-    keypoint_cache_path: Path = Path("/home/landson/RGBT-Scenes/Building/") / 'keypoint_cache' / "correspondences_rgb_to_thermal"
-    (keypoint_cache_path).mkdir(parents=True, exist_ok=True)
+        data_correspondencer = None
+        thermal_images: List[Path] = [Path(p) for p in glob.glob(str(self.base_path / "thermal" / "**" / "*.jpg"))]
+        thermal_images.sort()  # Ensure consistent order
 
-    camera_model = model.cameras[model.find_image_with_name("img_249.jpg").camera_id]
-    K = camera_model.calibration_matrix()
+        keypoint_cache_path: Path = self.base_path / 'keypoint_cache' / "correspondences_rgb_to_thermal"
+        (keypoint_cache_path).mkdir(parents=True, exist_ok=True)
 
-    intrinsics = {
-        "camera_model": str(camera_model.model),
-        "fl_x": camera_model.params[0],
-        "fl_y": camera_model.params[1],
-        "cx": camera_model.params[2],
-        "cy": camera_model.params[3],
-        "w": camera_model.width,
-        "h": camera_model.height,
-    }
+        camera_model = model.cameras[model.find_image_with_name("img_249.jpg").camera_id]
+        K = camera_model.calibration_matrix()
 
-    translation_errors = []
-    rotation_errors = []
-    for img_path in thermal_images:
-        rgb_img = Path(str(img_path).replace("thermal", "rgb"))
-        print(f"Processing image: {img_path} and {rgb_img}")
-        if not (keypoint_cache_path / f"{img_path.stem}_correspondences.pt").exists():
-            if data_correspondencer is None:
-                data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), CombinedAligner())
-                print("Initialized VGGTFeatureMatcher")
-            images = load_and_preprocess_images([img_path, rgb_img])
-            _, _, kpts1, kpts2, conf = data_correspondencer.compute_correspondences([rgb_img]*2, [img_path]*2, [ImageModality.rgb, ImageModality.thermal])
+        intrinsics = {
+            "camera_model": camera_model.model.name,
+            "fl_x": camera_model.params[0],
+            "fl_y": camera_model.params[1],
+            "cx": camera_model.params[2],
+            "cy": camera_model.params[3],
+            "w": camera_model.width,
+            "h": camera_model.height,
+        }
 
-            torch.save((kpts1, kpts2, conf), keypoint_cache_path / f"{img_path.stem}_correspondences.pt")
-        else:
-            print("loading cached correspondences for image:", img_path)
-            kpts1, kpts2, conf = torch.load(keypoint_cache_path / f"{img_path.stem}_correspondences.pt", map_location='cpu')
+        poses = []
+        translation_errors = []
+        rotation_errors = []
+        for img_path in thermal_images[:10]:
+            rgb_img = Path(str(img_path).replace("thermal", "rgb"))
+            print(f"Processing image: {img_path} and {rgb_img}")
+            if not (keypoint_cache_path / f"{img_path.stem}_correspondences.pt").exists():
+                if data_correspondencer is None:
+                    data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), CombinedAligner())
+                    print("Initialized VGGTFeatureMatcher")
+                images = load_and_preprocess_images([img_path, rgb_img])
+                _, _, kpts1, kpts2, conf = data_correspondencer.compute_correspondences([rgb_img]*2, [img_path]*2, [ImageModality.rgb, ImageModality.thermal])
 
-        colmap_img = model.find_image_with_name(rgb_img.stem + rgb_img.suffix)
-        kdtree, coords = build_kdtree(colmap_img)
+                torch.save((kpts1, kpts2, conf), keypoint_cache_path / f"{img_path.stem}_correspondences.pt")
+            else:
+                print("loading cached correspondences for image:", img_path)
+                kpts1, kpts2, conf = torch.load(keypoint_cache_path / f"{img_path.stem}_correspondences.pt", map_location='cpu')
 
-        idxs, mask = find_keypoints_vectorized(kdtree, coords, kpts1)
-        idx_3d = np.array([
-            p.point3D_id
-            for p in (colmap_img.points2D[i] for i in idxs[mask])
-            if p.has_point3D()
-        ])
+            colmap_img = model.find_image_with_name(rgb_img.stem + rgb_img.suffix)
+            kdtree, coords = build_kdtree(colmap_img)
 
-        kpts_thermal = np.array([
-            p.xy
-            for p in (colmap_img.points2D[i] for i in idxs[mask])
-            if p.has_point3D()
-        ])
+            idxs, mask = find_keypoints_vectorized(kdtree, coords, kpts1)
+            idx_3d = np.array([
+                p.point3D_id
+                for p in (colmap_img.points2D[i] for i in idxs[mask])
+                if p.has_point3D()
+            ])
 
-        print(idxs.shape, mask.shape)
+            kpts_thermal = np.array([
+                p.xy
+                for p in (colmap_img.points2D[i] for i in idxs[mask])
+                if p.has_point3D()
+            ])
 
-        # print(np.array(colmap_img.points2D[idxs][mask].point3D_id))
-        matched_points3D = np.array([model.points3D[pt3D_id].xyz for pt3D_id in idx_3d])
-    
-        print(f"Number of matched 3D points for {img_path.stem}: {len(matched_points3D)}")
-        # visualize_points_3d(matched_points3D)
+            print(idxs.shape, mask.shape)
 
-        _, rvec, tvec, inliers = cv2.solvePnPRansac(matched_points3D, kpts_thermal , K, distCoeffs=None)
-        print(f"Estimated pose for {img_path.stem}:")
-        print("Rotation vector (rvec):", rvec.flatten())
-        print("Translation vector (tvec):", tvec.flatten())
-
-        R_est, _ = cv2.Rodrigues(rvec)
-
-        # Get ground truth poses
-        gt_pose = colmap_img.cam_from_world().matrix()
-        R_gt = gt_pose[:3, :3]
-        t_gt = gt_pose[:3, 3]
+            # print(np.array(colmap_img.points2D[idxs][mask].point3D_id))
+            matched_points3D = np.array([model.points3D[pt3D_id].xyz for pt3D_id in idx_3d])
         
-        translation_error = np.linalg.norm(t_gt - tvec.flatten())
-        print("Translation error (L2 norm):", translation_error)
-        translation_errors.append(translation_error)
-        # Compute yaw error
-        quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_est), ahrs.Quaternion(dcm=R_gt))
-        print("Rotation error (quaternion angle difference in degrees):", np.degrees(quaternion_angle_diff))
-        rotation_errors.append(quaternion_angle_diff)   
+            # print(f"Number of matched 3D points for {img_path.stem}: {len(matched_points3D)}")
+            # visualize_points_3d(matched_points3D)
 
-    print(f"Average translation error across all images: {np.mean(translation_errors)}")
-    print(f"Average rotation error across all images (degrees): {np.mean(rotation_errors)}")
+            _, rvec, tvec, inliers = cv2.solvePnPRansac(matched_points3D, kpts_thermal , K, distCoeffs=None)
+            # print(f"Estimated pose for {img_path.stem}:")
+            # print("Rotation vector (rvec):", rvec.flatten())
+            # print("Translation vector (tvec):", tvec.flatten())
+
+            R_est, _ = cv2.Rodrigues(rvec)
+
+            # Get ground truth poses
+            gt_pose = colmap_img.cam_from_world().matrix()
+            R_gt = gt_pose[:3, :3]
+            t_gt = gt_pose[:3, 3]
+
+
+            # Convert to homogeneous transformation matrix for NerfStudio
+            nerf_pose = np.eye(4)
+            if not self.save_ground_truth_poses:
+                nerf_pose[:3, :3] = R_est
+                nerf_pose[:3, 3] = tvec.flatten()
+            else:
+                nerf_pose[:3, :3] = R_gt
+                nerf_pose[:3, 3] = t_gt.flatten()
+            frame = {
+                "file_path": f"{img_path.relative_to(self.base_path)}",
+                "transform_matrix": nerf_pose.tolist()
+            }
+            poses.append(frame)
+            
+            if self.print_estimation_errors:
+                translation_error = np.linalg.norm(t_gt - tvec.flatten())
+                print("Translation error (L2 norm):", translation_error)
+                translation_errors.append(translation_error)
+                # Compute yaw error
+                quaternion_angle_diff = ahrs.utils.metrics.qad(ahrs.Quaternion(dcm=R_est), ahrs.Quaternion(dcm=R_gt))
+                print("Rotation error (quaternion angle difference in degrees):", np.degrees(quaternion_angle_diff))
+                rotation_errors.append(quaternion_angle_diff)   
+
+        if self.print_estimation_errors:
+            print(f"Average translation error across all images: {np.mean(translation_errors)}")
+            print(f"Average rotation error across all images (degrees): {np.mean(rotation_errors)}")
+
+        # Write the transforms.json file
+        self.write_transforms(intrinsics, poses)
             
         
 
 if __name__ == "__main__":
-    main()
+    tyro.extras.set_accent_color('bright_yellow')
+    generator: NerfstudioTransformWriter = tyro.cli(NerfstudioTransformWriter)
+    generator.main()
