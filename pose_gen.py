@@ -148,7 +148,7 @@ class NerfstudioTransformWriter:
         poses = []
         translation_errors = []
         rotation_errors = []
-        for img_path in thermal_images[:10]:
+        for img_path in thermal_images:
             rgb_img = Path(str(img_path).replace("thermal", "rgb"))
             print(f"Processing image: {img_path} and {rgb_img}")
             if not (keypoint_cache_path / f"{img_path.stem}_correspondences.pt").exists():
