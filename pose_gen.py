@@ -76,15 +76,15 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
+    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded"]]
+    """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded format."""
+
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
     """Limit the number of poses to convert."""
     uniform: Annotated[bool, tyro.conf.arg(aliases=["-u"])] = False
     """If True, distribute the poses uniformly."""
     output_path: Annotated[Optional[Path], tyro.conf.arg(aliases=["-o"])] = None
     """Path to the output transforms.json file. If None, it will be saved in the base path."""
-
-    save_ground_truth_poses: Annotated[bool, tyro.conf.arg(aliases=["-g"])] = False
-    """If True, save the ground truth poses from COLMAP into the transforms.json file instead of the estimated ones."""
 
     print_estimation_errors: Annotated[bool, tyro.conf.arg(aliases=["-e"])] = False
     """If True, print the translation and rotation estimation errors compared to COLMAP poses."""
@@ -202,16 +202,38 @@ class NerfstudioTransformWriter:
 
             # Convert to homogeneous transformation matrix for NerfStudio
             nerf_pose = np.eye(4)
-            if not self.save_ground_truth_poses:
+            if self.mode == "estimated":
                 nerf_pose[:3, :3] = R_est
                 nerf_pose[:3, 3] = tvec.flatten()
-            else:
+            elif self.mode == "ground_truth" or self.mode == "thermo_nerf":
                 nerf_pose[:3, :3] = R_gt
                 nerf_pose[:3, 3] = t_gt.flatten()
-            frame = {
-                "file_path": f"{img_path.relative_to(self.base_path)}",
-                "transform_matrix": nerf_pose.tolist()
-            }
+            elif self.mode == "modded":
+                rgb_pose = np.eye(4)
+                rgb_pose[:3, :3] = R_gt
+                rgb_pose[:3, 3] = t_gt.flatten()
+                thermal_pose = np.eye(4)
+                thermal_pose[:3, :3] = R_est
+                thermal_pose[:3, 3] = tvec.flatten()
+            
+            if self.mode == "thermo_nerf":
+                frame = {
+                    "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                    "transform_matrix": nerf_pose.tolist(),
+                    "thermal_file_path": f"{img_path.relative_to(self.base_path)}"
+                }
+            elif self.mode == "modded":
+                frame = {
+                    "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                    "transform_matrix": rgb_pose.tolist(),
+                    "thermal_transform_matrix": thermal_pose.tolist(),
+                    "thermal_file_path": f"{img_path.relative_to(self.base_path)}"
+                }
+            else:
+                frame = {
+                    "file_path": f"{img_path.relative_to(self.base_path)}",
+                    "transform_matrix": nerf_pose.tolist()
+                }
             poses.append(frame)
             
             if self.print_estimation_errors:
