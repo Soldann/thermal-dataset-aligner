@@ -76,8 +76,8 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded"]]
-    """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded format."""
+    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded", "modded_gt"]]
+    """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
     """Limit the number of poses to convert."""
@@ -132,7 +132,7 @@ class NerfstudioTransformWriter:
         keypoint_cache_path: Path = self.base_path / 'keypoint_cache' / "correspondences_rgb_to_thermal"
         (keypoint_cache_path).mkdir(parents=True, exist_ok=True)
 
-        camera_model = model.cameras[model.find_image_with_name("img_249.jpg").camera_id]
+        camera_model = model.cameras[1]  # Assuming all images use the same camera model
         K = camera_model.calibration_matrix()
 
         intrinsics = {
@@ -215,6 +215,13 @@ class NerfstudioTransformWriter:
                 thermal_pose = np.eye(4)
                 thermal_pose[:3, :3] = R_est
                 thermal_pose[:3, 3] = tvec.flatten()
+            elif self.mode == "modded_gt":
+                rgb_pose = np.eye(4)
+                rgb_pose[:3, :3] = R_gt
+                rgb_pose[:3, 3] = t_gt.flatten()
+                thermal_pose = np.eye(4)
+                thermal_pose[:3, :3] = R_gt
+                thermal_pose[:3, 3] = t_gt.flatten()
             
             if self.mode == "thermo_nerf":
                 frame = {
@@ -222,7 +229,7 @@ class NerfstudioTransformWriter:
                     "transform_matrix": nerf_pose.tolist(),
                     "thermal_file_path": f"{img_path.relative_to(self.base_path)}"
                 }
-            elif self.mode == "modded":
+            elif self.mode == "modded" or self.mode == "modded_gt":
                 frame = {
                     "file_path": f"{rgb_img.relative_to(self.base_path)}",
                     "transform_matrix": rgb_pose.tolist(),

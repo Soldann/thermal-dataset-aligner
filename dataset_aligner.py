@@ -9,10 +9,15 @@ from alignment_methods.feature_aligner import FeatureAligner
 from alignment_methods.combined_aligner import CombinedAligner
 import cv2
 import numpy as np
+import matplotlib
 import matplotlib.pyplot as plt
+import os
 
 # Set matplotlib backend for GUI environments
-plt.switch_backend('tkagg')
+if os.environ.get("DISPLAY"):
+    matplotlib.use("tkagg")
+else:
+    matplotlib.use("agg")
 
 class DatasetFormat(Enum):
     RGBT_Scenes = "RGBT-Scenes"

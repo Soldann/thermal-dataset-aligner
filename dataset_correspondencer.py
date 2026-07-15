@@ -18,12 +18,17 @@ import cv2
 from vggt.utils.load_fn import load_and_preprocess_images
 from dataset_aligner import AlignmentMethod, DatasetFormat
 from plotting import make_matching_figure, create_interactive_correspondence_plot_from_kpts, plot_correspondences
+import matplotlib
+import os
 import matplotlib.cm as cm
 import numpy as np
 import matplotlib.pyplot as plt
 
 # Set matplotlib backend for GUI environments
-plt.switch_backend('tkagg')
+if os.environ.get("DISPLAY"):
+    matplotlib.use("tkagg")
+else:
+    matplotlib.use("agg")
 
 class ImageModality(IntEnum):
     thermal = 0
