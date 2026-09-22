@@ -72,7 +72,7 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded", "modded_gt", "all_modded"]]
+    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded", "modded_gt", "all_modded", "decoupled"]]
     """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
@@ -84,6 +84,8 @@ class NerfstudioTransformWriter:
 
     max_frames: Annotated[int, tyro.conf.arg(aliases=["-m"])] = 10
     """Maximum number of frames to process. If more frames are present, only the first `max_frames` will be used."""
+    train_test_ratio: Annotated[float, tyro.conf.arg(aliases=["-ttr"])] = 0.8
+    """Ratio of training to test frames, in the case that there are more available frames than max_frames."""
 
     print_estimation_errors: Annotated[bool, tyro.conf.arg(aliases=["-e"])] = False
     """If True, print the translation and rotation estimation errors compared to COLMAP poses."""
@@ -154,8 +156,21 @@ class NerfstudioTransformWriter:
             rgb_img = Path(str(thermal_img_path).replace("thermal", "rgb"))
             rgb_images.append(rgb_img)
 
-        rgb_images = rgb_images[:self.max_frames]
-        thermal_images = thermal_images[:self.max_frames]
+        if self.max_frames < len(rgb_images):
+            train_rgb_images = [img for img in rgb_images if "train" in str(img)]
+            train_thermal_images = [img for img in thermal_images if "train" in str(img)]
+            test_rgb_images = [img for img in rgb_images if "test" in str(img)]
+            test_thermal_images = [img for img in thermal_images if "test" in str(img)]
+            # Calculate the number of training frames based on the ratio
+            num_train_frames = int(self.max_frames * self.train_test_ratio)
+            # Select the first `num_train_frames` training images
+            train_rgb_images = train_rgb_images[:num_train_frames]
+            train_thermal_images = train_thermal_images[:num_train_frames]
+            # Select the remaining test images
+            test_rgb_images = test_rgb_images[:self.max_frames - num_train_frames]
+            test_thermal_images = test_thermal_images[:self.max_frames - num_train_frames]
+            rgb_images = train_rgb_images + test_rgb_images
+            thermal_images = train_thermal_images + test_thermal_images
 
         predicted_extrinsics = reconstruct_with_SEAR(SEAR_model, rgb_images, thermal_images, max_frames = self.max_frames * 2)
         print("Predicted pose shape", predicted_extrinsics.shape)
@@ -201,7 +216,7 @@ class NerfstudioTransformWriter:
                 thermal_pose = np.eye(4)
                 thermal_pose[:3, :3] = R_gt
                 thermal_pose[:3, 3] = t_gt.flatten()
-            elif self.mode == "all_modded":
+            elif self.mode == "all_modded" or self.mode == "decoupled":
                 rgb_pose = np.eye(4)
                 rgb_pose[:3, :3] = rgb_R_est
                 rgb_pose[:3, 3] = rgb_tvec.flatten()
@@ -209,25 +224,39 @@ class NerfstudioTransformWriter:
                 thermal_pose[:3, :3] = R_est
                 thermal_pose[:3, 3] = tvec.flatten()
             
-            if self.mode == "thermo_nerf":
-                frame = {
-                    "file_path": f"{rgb_img.relative_to(self.base_path)}",
-                    "transform_matrix": nerf_pose.tolist(),
-                    "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
-                }
-            elif self.mode == "modded" or self.mode == "modded_gt" or self.mode == "all_modded":
-                frame = {
+            if self.mode == "decoupled":
+                rgb_frame = {
                     "file_path": f"{rgb_img.relative_to(self.base_path)}",
                     "transform_matrix": rgb_pose.tolist(),
-                    "thermal_transform_matrix": thermal_pose.tolist(),
-                    "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
+                    "is_thermal": False
                 }
-            else:
-                frame = {
+                thermal_frame = {
                     "file_path": f"{thermal_img_path.relative_to(self.base_path)}",
-                    "transform_matrix": nerf_pose.tolist()
+                    "transform_matrix": thermal_pose.tolist(),
+                    "is_thermal": True
                 }
-            poses.append(frame)
+                poses.append(rgb_frame)
+                poses.append(thermal_frame)
+            else:
+                if self.mode == "thermo_nerf":
+                    frame = {
+                        "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                        "transform_matrix": nerf_pose.tolist(),
+                        "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
+                    }
+                elif self.mode == "modded" or self.mode == "modded_gt" or self.mode == "all_modded":
+                    frame = {
+                        "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                        "transform_matrix": rgb_pose.tolist(),
+                        "thermal_transform_matrix": thermal_pose.tolist(),
+                        "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
+                    }
+                else:
+                    frame = {
+                        "file_path": f"{thermal_img_path.relative_to(self.base_path)}",
+                        "transform_matrix": nerf_pose.tolist()
+                    }
+                poses.append(frame)
             
             if self.print_estimation_errors:
                 translation_error = np.linalg.norm(t_gt - tvec.flatten())
