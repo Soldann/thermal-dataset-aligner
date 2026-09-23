@@ -19,6 +19,7 @@ from typing import Literal, Optional
 from typing_extensions import Annotated
 import json
 from sear_model import load_sear_model, reconstruct_with_SEAR  # noqa: E402
+from plyfile import PlyData, PlyElement
 
 def visualize_points_3d(points_xyz, figsize=(8, 8), elev=20, azim=-60):
     """
@@ -110,9 +111,26 @@ class NerfstudioTransformWriter:
             json.dump(transforms, f, indent=4)
             print(f'Transforms file written to {self.output_path}')
 
+    def storePly(self, path, xyz, rgb):
+        # Define the dtype for the structured array
+        dtype = [('x', 'f4'), ('y', 'f4'), ('z', 'f4'),
+                ('nx', 'f4'), ('ny', 'f4'), ('nz', 'f4'),
+                ('red', 'u1'), ('green', 'u1'), ('blue', 'u1')]
+        
+        normals = np.zeros_like(xyz)
+
+        elements = np.empty(xyz.shape[0], dtype=dtype)
+        attributes = np.concatenate((xyz, normals, rgb), axis=1)
+        elements[:] = list(map(tuple, attributes))
+
+        # Create the PlyData object and write to file
+        vertex_element = PlyElement.describe(elements, 'vertex')
+        ply_data = PlyData([vertex_element])
+        ply_data.write(path)
+
     def main(self):
         if self.output_path is None:
-            self.output_path = self.base_path / "transforms_sear.json"
+            self.output_path = self.base_path / "transforms_sear_all_modded.json"
 
         # Load the COLMAP model
         model_path = self.base_path / "colmap" / "sparse" / "0"
@@ -172,7 +190,8 @@ class NerfstudioTransformWriter:
             rgb_images = train_rgb_images + test_rgb_images
             thermal_images = train_thermal_images + test_thermal_images
 
-        predicted_extrinsics = reconstruct_with_SEAR(SEAR_model, rgb_images, thermal_images, max_frames = self.max_frames * 2)
+        predicted_extrinsics, pointcloud_xyz, pointcloud_rgb = reconstruct_with_SEAR(SEAR_model, rgb_images, thermal_images, max_frames = self.max_frames * 2)
+        self.storePly(self.output_path.parent / "pointcloud.ply", pointcloud_xyz, pointcloud_rgb)
         print("Predicted pose shape", predicted_extrinsics.shape)
 
         for i, thermal_img_path in enumerate(thermal_images):

@@ -35,7 +35,8 @@ from peft import (
 )
 from vggt.models.aggregator import Aggregator, slice_expand_and_flatten
 from vggt.models.vggt import CameraHead, DPTHead
-
+from vggt.utils.geometry import unproject_depth_map_to_point_map  # noqa: E402
+from vggt.utils.helper import randomly_limit_trues  # noqa: E402
 
 class CustomPatterns(Enum):
     """Which modules of the Alternating-Attention stack receive LoRA."""
@@ -554,4 +555,31 @@ def reconstruct_with_SEAR(
     del predictions
     torch.cuda.empty_cache()
 
-    return extrinsics
+    # --- point cloud, following sear/visualization/point_cloud_original.py ---
+    if point_source == "RGB only":
+        keep = ~is_thermal
+    elif point_source == "Thermal only":
+        keep = is_thermal
+    else:
+        keep = np.ones_like(is_thermal, dtype=bool)
+    keep_t = torch.from_numpy(keep)
+
+    d_sel = depth[keep_t]
+    conf_sel = depth_conf[keep_t]
+    thresholds = torch.quantile(
+        conf_sel.flatten(start_dim=1), q=float(conf_quantile), dim=1
+    )[:, None, None]
+    point_masks = (conf_sel >= thresholds).numpy()
+    np.random.seed(0)
+    point_masks = randomly_limit_trues(point_masks, max_trues=int(max_points))
+
+    world_points = unproject_depth_map_to_point_map(
+        depth_map=d_sel[..., None].numpy(),
+        extrinsics_cam=extrinsics[keep_t].numpy(),
+        intrinsics_cam=intrinsics[keep_t].numpy(),
+    )
+    points = world_points[point_masks]
+    colors = images_cpu[keep_t].permute(0, 2, 3, 1).numpy()[point_masks]
+    colors = (np.clip(colors, 0.0, 1.0) * 255).astype(np.uint8)
+
+    return extrinsics, points, colors
