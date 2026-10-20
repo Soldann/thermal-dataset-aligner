@@ -76,7 +76,7 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded", "modded_gt"]]
+    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "thermo_nerf_gt", "modded", "modded_gt", "decoupled_gt"]]
     """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
@@ -148,20 +148,20 @@ class NerfstudioTransformWriter:
         poses = []
         translation_errors = []
         rotation_errors = []
-        for img_path in thermal_images:
-            rgb_img = Path(str(img_path).replace("thermal", "rgb"))
-            print(f"Processing image: {img_path} and {rgb_img}")
-            if not (keypoint_cache_path / f"{img_path.stem}_correspondences.pt").exists():
+        for thermal_img_path in thermal_images:
+            rgb_img = Path(str(thermal_img_path).replace("thermal", "rgb"))
+            print(f"Processing image: {thermal_img_path} and {rgb_img}")
+            if not (keypoint_cache_path / f"{thermal_img_path.stem}_correspondences.pt").exists():
                 if data_correspondencer is None:
                     data_correspondencer = DatasetCorrespondencer(VGGTFeatureMatcher(), CombinedAligner())
                     print("Initialized VGGTFeatureMatcher")
-                images = load_and_preprocess_images([img_path, rgb_img])
-                _, _, kpts1, kpts2, conf = data_correspondencer.compute_correspondences([rgb_img]*2, [img_path]*2, [ImageModality.rgb, ImageModality.thermal])
+                images = load_and_preprocess_images([thermal_img_path, rgb_img])
+                _, _, kpts1, kpts2, conf = data_correspondencer.compute_correspondences([rgb_img]*2, [thermal_img_path]*2, [ImageModality.rgb, ImageModality.thermal])
 
-                torch.save((kpts1, kpts2, conf), keypoint_cache_path / f"{img_path.stem}_correspondences.pt")
+                torch.save((kpts1, kpts2, conf), keypoint_cache_path / f"{thermal_img_path.stem}_correspondences.pt")
             else:
-                print("loading cached correspondences for image:", img_path)
-                kpts1, kpts2, conf = torch.load(keypoint_cache_path / f"{img_path.stem}_correspondences.pt", map_location='cpu')
+                print("loading cached correspondences for image:", thermal_img_path)
+                kpts1, kpts2, conf = torch.load(keypoint_cache_path / f"{thermal_img_path.stem}_correspondences.pt", map_location='cpu')
 
             colmap_img = model.find_image_with_name(rgb_img.stem + rgb_img.suffix)
             kdtree, coords = build_kdtree(colmap_img)
@@ -201,13 +201,16 @@ class NerfstudioTransformWriter:
 
 
             # Convert to homogeneous transformation matrix for NerfStudio
-            nerf_pose = np.eye(4)
-            if self.mode == "estimated":
-                nerf_pose[:3, :3] = R_est
-                nerf_pose[:3, 3] = tvec.flatten()
-            elif self.mode == "ground_truth" or self.mode == "thermo_nerf":
-                nerf_pose[:3, :3] = R_gt
-                nerf_pose[:3, 3] = t_gt.flatten()
+            rgb_pose = np.eye(4)
+            if self.mode == "estimated" or self.mode == "thermo_nerf":
+                rgb_pose[:3, :3] = R_est
+                rgb_pose[:3, 3] = tvec.flatten()
+            elif self.mode == "ground_truth" or self.mode == "thermo_nerf_gt":
+                rgb_pose[:3, :3] = R_gt
+                rgb_pose[:3, 3] = t_gt.flatten()
+                thermal_pose = np.eye(4)
+                thermal_pose[:3, :3] = R_gt
+                thermal_pose[:3, 3] = t_gt.flatten()
             elif self.mode == "modded":
                 rgb_pose = np.eye(4)
                 rgb_pose[:3, :3] = R_gt
@@ -222,25 +225,39 @@ class NerfstudioTransformWriter:
                 thermal_pose = np.eye(4)
                 thermal_pose[:3, :3] = R_gt
                 thermal_pose[:3, 3] = t_gt.flatten()
-            
-            if self.mode == "thermo_nerf":
-                frame = {
-                    "file_path": f"{rgb_img.relative_to(self.base_path)}",
-                    "transform_matrix": nerf_pose.tolist(),
-                    "thermal_file_path": f"{img_path.relative_to(self.base_path)}"
-                }
-            elif self.mode == "modded" or self.mode == "modded_gt":
-                frame = {
+
+            if self.mode == "decoupled_gt":
+                rgb_frame = {
                     "file_path": f"{rgb_img.relative_to(self.base_path)}",
                     "transform_matrix": rgb_pose.tolist(),
-                    "thermal_transform_matrix": thermal_pose.tolist(),
-                    "thermal_file_path": f"{img_path.relative_to(self.base_path)}"
+                    "is_thermal": False
                 }
+                thermal_frame = {
+                    "file_path": f"{thermal_img_path.relative_to(self.base_path)}",
+                    "transform_matrix": thermal_pose.tolist(),
+                    "is_thermal": True
+                }
+                poses.append(rgb_frame)
+                poses.append(thermal_frame)
             else:
-                frame = {
-                    "file_path": f"{img_path.relative_to(self.base_path)}",
-                    "transform_matrix": nerf_pose.tolist()
-                }
+                if self.mode == "thermo_nerf" or self.mode == "thermo_nerf_gt":
+                    frame = {
+                        "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                        "transform_matrix": rgb_pose.tolist(),
+                        "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
+                    }
+                elif self.mode == "modded" or self.mode == "modded_gt":
+                    frame = {
+                        "file_path": f"{rgb_img.relative_to(self.base_path)}",
+                        "transform_matrix": rgb_pose.tolist(),
+                        "thermal_transform_matrix": thermal_pose.tolist(),
+                        "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
+                    }
+                else:
+                    frame = {
+                        "file_path": f"{thermal_img_path.relative_to(self.base_path)}",
+                        "transform_matrix": rgb_pose.tolist()
+                    }
             poses.append(frame)
             
             if self.print_estimation_errors:

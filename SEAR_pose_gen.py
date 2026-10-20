@@ -73,7 +73,7 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "modded", "modded_gt", "all_modded", "decoupled"]]
+    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "thermo_nerf_gt", "modded", "modded_gt", "all_modded", "decoupled", "decoupled_gt"]]
     """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
@@ -214,13 +214,19 @@ class NerfstudioTransformWriter:
             t_gt = gt_pose[:3, 3]
 
             # Convert to homogeneous transformation matrix for NerfStudio
-            nerf_pose = np.eye(4)
-            if self.mode == "estimated":
-                nerf_pose[:3, :3] = R_est
-                nerf_pose[:3, 3] = tvec.flatten()
-            elif self.mode == "ground_truth" or self.mode == "thermo_nerf":
-                nerf_pose[:3, :3] = R_gt
-                nerf_pose[:3, 3] = t_gt.flatten()
+            rgb_pose = np.eye(4)
+            if self.mode == "estimated" or self.mode == "thermo_nerf":
+                rgb_pose[:3, :3] = R_est
+                rgb_pose[:3, 3] = tvec.flatten()
+                thermal_pose = np.eye(4)
+                thermal_pose[:3, :3] = R_gt
+                thermal_pose[:3, 3] = t_gt.flatten()
+            elif self.mode == "ground_truth" or self.mode == "thermo_nerf_gt" or self.mode == "decoupled_gt":
+                rgb_pose[:3, :3] = R_gt
+                rgb_pose[:3, 3] = t_gt.flatten()
+                thermal_pose = np.eye(4)
+                thermal_pose[:3, :3] = R_gt
+                thermal_pose[:3, 3] = t_gt.flatten()
             elif self.mode == "modded":
                 rgb_pose = np.eye(4)
                 rgb_pose[:3, :3] = R_gt
@@ -243,7 +249,7 @@ class NerfstudioTransformWriter:
                 thermal_pose[:3, :3] = R_est
                 thermal_pose[:3, 3] = tvec.flatten()
             
-            if self.mode == "decoupled":
+            if self.mode == "decoupled" or self.mode == "decoupled_gt":
                 rgb_frame = {
                     "file_path": f"{rgb_img.relative_to(self.base_path)}",
                     "transform_matrix": rgb_pose.tolist(),
@@ -257,10 +263,10 @@ class NerfstudioTransformWriter:
                 poses.append(rgb_frame)
                 poses.append(thermal_frame)
             else:
-                if self.mode == "thermo_nerf":
+                if self.mode == "thermo_nerf" or self.mode == "thermo_nerf_gt":
                     frame = {
                         "file_path": f"{rgb_img.relative_to(self.base_path)}",
-                        "transform_matrix": nerf_pose.tolist(),
+                        "transform_matrix": rgb_pose.tolist(),
                         "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
                     }
                 elif self.mode == "modded" or self.mode == "modded_gt" or self.mode == "all_modded":
@@ -273,7 +279,7 @@ class NerfstudioTransformWriter:
                 else:
                     frame = {
                         "file_path": f"{thermal_img_path.relative_to(self.base_path)}",
-                        "transform_matrix": nerf_pose.tolist()
+                        "transform_matrix": rgb_pose.tolist()
                     }
                 poses.append(frame)
             
