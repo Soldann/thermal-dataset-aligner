@@ -415,7 +415,7 @@ class ThermalVGGT(nn.Module):
 
 def load_sear_model(
     sear_repo_id: str = "MalcolmMielle/SEAR",
-    sear_filename: str = "SEAR.ckpt",
+    sear_filename: str = "SEAR_13.ckpt",
     vggt_repo_id: str = "facebook/VGGT-1B",
     vggt_filename: str = "model.pt",
 ) -> ThermalVGGT:
@@ -486,7 +486,8 @@ def _paths(files) -> list[str]:
             f = f.get("path")
         if f:
             out.append(str(f))
-    return sorted(out)
+    # Preserve caller order: returned extrinsics are indexed by the input frames.
+    return out
 
 def reconstruct_with_SEAR(
     model,
