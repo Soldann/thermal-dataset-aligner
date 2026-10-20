@@ -76,8 +76,8 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermo_nerf", "thermo_nerf_gt", "modded", "modded_gt", "decoupled_gt"]]
-    """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermo_nerf format or modded / modded_gt format."""
+    mode: Positional[Literal["estimated", "ground_truth", "thermal_gaussian", "thermal_gaussian_gt", "modded", "modded_gt", "decoupled_gt"]]
+    """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermal_gaussian format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
     """Limit the number of poses to convert."""
@@ -202,10 +202,10 @@ class NerfstudioTransformWriter:
 
             # Convert to homogeneous transformation matrix for NerfStudio
             rgb_pose = np.eye(4)
-            if self.mode == "estimated" or self.mode == "thermo_nerf":
+            if self.mode == "estimated" or self.mode == "thermal_gaussian":
                 rgb_pose[:3, :3] = R_est
                 rgb_pose[:3, 3] = tvec.flatten()
-            elif self.mode == "ground_truth" or self.mode == "thermo_nerf_gt":
+            elif self.mode == "ground_truth" or self.mode == "thermal_gaussian_gt":
                 rgb_pose[:3, :3] = R_gt
                 rgb_pose[:3, 3] = t_gt.flatten()
                 thermal_pose = np.eye(4)
@@ -240,7 +240,7 @@ class NerfstudioTransformWriter:
                 poses.append(rgb_frame)
                 poses.append(thermal_frame)
             else:
-                if self.mode == "thermo_nerf" or self.mode == "thermo_nerf_gt":
+                if self.mode == "thermal_gaussian" or self.mode == "thermal_gaussian_gt":
                     frame = {
                         "file_path": f"{rgb_img.relative_to(self.base_path)}",
                         "transform_matrix": rgb_pose.tolist(),
