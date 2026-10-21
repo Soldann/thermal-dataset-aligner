@@ -73,7 +73,7 @@ class NerfstudioTransformWriter:
     base_path: Positional[Path]
     """Path to the base folder of the dataset."""
 
-    mode: Positional[Literal["estimated", "ground_truth", "thermal_gaussian", "thermal_gaussian_gt", "modded", "modded_gt", "all_modded", "decoupled", "decoupled_gt"]]
+    mode: Positional[Literal["estimated", "ground_truth", "thermal_gaussian", "thermal_gaussian_gt", "modded", "modded_gt", "modded_gt_rgb", "decoupled", "decoupled_gt"]]
     """Whether to save the estimated poses or the ground truth COLMAP poses, or to use the thermal_gaussian format or modded / modded_gt format."""
 
     pose_limit: Annotated[Optional[int], tyro.conf.arg(aliases=["-p"])] = None
@@ -130,7 +130,7 @@ class NerfstudioTransformWriter:
 
     def main(self):
         if self.output_path is None:
-            self.output_path = self.base_path / "transforms_sear_all_modded.json"
+            self.output_path = self.base_path / "transforms_sear.json"
 
         # Load the COLMAP model
         model_path = self.base_path / "colmap" / "sparse" / "0"
@@ -169,7 +169,9 @@ class NerfstudioTransformWriter:
         rotation_errors = []
 
         rgb_images = []
-        SEAR_model = load_sear_model().to("cuda")
+
+        if self.mode == "estimated" or self.mode == "thermal_gaussian" or self.mode == "modded" or self.mode == "modded_gt_rgb" or self.mode == "decoupled":
+            SEAR_model = load_sear_model().to("cuda")
         for thermal_img_path in thermal_images:
             rgb_img = Path(str(thermal_img_path).replace("thermal", "rgb"))
             rgb_images.append(rgb_img)
@@ -190,9 +192,13 @@ class NerfstudioTransformWriter:
             rgb_images = train_rgb_images + test_rgb_images
             thermal_images = train_thermal_images + test_thermal_images
 
-        predicted_extrinsics, pointcloud_xyz, pointcloud_rgb = reconstruct_with_SEAR(SEAR_model, rgb_images, thermal_images, max_frames = self.max_frames * 2)
-        self.storePly(self.output_path.parent / "pointcloud.ply", pointcloud_xyz, pointcloud_rgb)
-        print("Predicted pose shape", predicted_extrinsics.shape)
+        if self.mode == "estimated" or self.mode == "thermal_gaussian" or self.mode == "modded" or self.mode == "modded_gt_rgb" or self.mode == "decoupled":
+            predicted_extrinsics, pointcloud_xyz, pointcloud_rgb = reconstruct_with_SEAR(SEAR_model, rgb_images, thermal_images, max_frames = self.max_frames * 2)
+            self.storePly(self.output_path.parent / "pointcloud.ply", pointcloud_xyz, pointcloud_rgb)
+            intrinsics["pointcloud_path"] = str(self.output_path.parent / "pointcloud.ply")
+            print("Predicted pose shape", predicted_extrinsics.shape)
+        else:
+            intrinsics["pointcloud_path"] = model_path / "points3D.ply"
 
         for i, thermal_img_path in enumerate(thermal_images):
             rgb_img = Path(str(thermal_img_path).replace("thermal", "rgb"))
@@ -200,13 +206,13 @@ class NerfstudioTransformWriter:
 
             colmap_img = model.find_image_with_name(rgb_img.stem + rgb_img.suffix)
 
-            predicted_pose_rgb = predicted_extrinsics[i]
-            rgb_R_est = predicted_pose_rgb[:3, :3]
-            rgb_tvec = predicted_pose_rgb[:3, 3]
-            predicted_pose_thermal = predicted_extrinsics[len(rgb_images) + i]
-            print(predicted_pose_thermal)
-            R_est = predicted_pose_thermal[:3, :3]
-            tvec = predicted_pose_thermal[:3, 3]
+            if self.mode == "estimated" or self.mode == "thermal_gaussian" or self.mode == "modded" or self.mode == "modded_gt_rgb" or self.mode == "decoupled":
+                predicted_pose_rgb = predicted_extrinsics[i]
+                rgb_R_est = predicted_pose_rgb[:3, :3]
+                rgb_tvec = predicted_pose_rgb[:3, 3]
+                predicted_pose_thermal = predicted_extrinsics[len(rgb_images) + i]
+                R_est = predicted_pose_thermal[:3, :3]
+                tvec = predicted_pose_thermal[:3, 3]
 
             # Get ground truth poses
             gt_pose = colmap_img.cam_from_world().matrix()
@@ -227,7 +233,7 @@ class NerfstudioTransformWriter:
                 thermal_pose = np.eye(4)
                 thermal_pose[:3, :3] = R_gt
                 thermal_pose[:3, 3] = t_gt.flatten()
-            elif self.mode == "modded":
+            elif self.mode == "modded_gt_rgb":
                 rgb_pose = np.eye(4)
                 rgb_pose[:3, :3] = R_gt
                 rgb_pose[:3, 3] = t_gt.flatten()
@@ -241,7 +247,7 @@ class NerfstudioTransformWriter:
                 thermal_pose = np.eye(4)
                 thermal_pose[:3, :3] = R_gt
                 thermal_pose[:3, 3] = t_gt.flatten()
-            elif self.mode == "all_modded" or self.mode == "decoupled":
+            elif self.mode == "modded" or self.mode == "decoupled":
                 rgb_pose = np.eye(4)
                 rgb_pose[:3, :3] = rgb_R_est
                 rgb_pose[:3, 3] = rgb_tvec.flatten()
@@ -269,7 +275,7 @@ class NerfstudioTransformWriter:
                         "transform_matrix": rgb_pose.tolist(),
                         "thermal_file_path": f"{thermal_img_path.relative_to(self.base_path)}"
                     }
-                elif self.mode == "modded" or self.mode == "modded_gt" or self.mode == "all_modded":
+                elif self.mode == "modded" or self.mode == "modded_gt" or self.mode == "modded_gt_rgb":
                     frame = {
                         "file_path": f"{rgb_img.relative_to(self.base_path)}",
                         "transform_matrix": rgb_pose.tolist(),
