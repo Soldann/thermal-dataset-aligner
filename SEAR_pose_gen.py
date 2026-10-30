@@ -82,6 +82,8 @@ class NerfstudioTransformWriter:
     """If True, distribute the poses uniformly."""
     output_path: Annotated[Optional[Path], tyro.conf.arg(aliases=["-o"])] = None
     """Path to the output transforms.json file. If None, it will be saved in the base path."""
+    output_filename: Annotated[Optional[str], tyro.conf.arg(aliases=["-of"])] = "transforms_sear.json"
+    """Name of the output transforms.json file. If None, defaults to transforms_sear.json."""
 
     max_frames: Annotated[int, tyro.conf.arg(aliases=["-m"])] = 10
     """Maximum number of frames to process. If more frames are present, only the first `max_frames` will be used."""
@@ -130,7 +132,7 @@ class NerfstudioTransformWriter:
 
     def main(self):
         if self.output_path is None:
-            self.output_path = self.base_path / "transforms_sear.json"
+            self.output_path = self.base_path / self.output_filename
 
         # Load the COLMAP model
         model_path = self.base_path / "colmap" / "sparse" / "0"
@@ -170,6 +172,7 @@ class NerfstudioTransformWriter:
 
         rgb_images = []
 
+        print("Starting conversion for mode:", self.mode)
         if self.mode == "estimated" or self.mode == "thermal_gaussian" or self.mode == "modded" or self.mode == "modded_gt_rgb" or self.mode == "decoupled":
             SEAR_model = load_sear_model().to("cuda")
         for thermal_img_path in thermal_images:
@@ -198,7 +201,7 @@ class NerfstudioTransformWriter:
             intrinsics["pointcloud_path"] = str(self.output_path.parent / "pointcloud.ply")
             print("Predicted pose shape", predicted_extrinsics.shape)
         else:
-            intrinsics["pointcloud_path"] = model_path / "points3D.ply"
+            intrinsics["pointcloud_path"] = str(model_path / "points3D.ply")
 
         for i, thermal_img_path in enumerate(thermal_images):
             rgb_img = Path(str(thermal_img_path).replace("thermal", "rgb"))
